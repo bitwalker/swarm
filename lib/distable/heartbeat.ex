@@ -9,8 +9,8 @@ defmodule Distable.Heartbeat do
   The heartbeat protocol uses UDP, on a configurable port and multicast
   address. By default, it uses port 45892 and multicast address 224.0.0.251.
   """
-  require Logger
   use GenServer
+  import Distable.Logger
 
   @default_port 45892
   @default_addr {0,0,0,0}
@@ -44,7 +44,6 @@ defmodule Distable.Heartbeat do
 
   # Send stuttered heartbeats
   def handle_info(:heartbeat, {multicast_addr, port, socket} = state) do
-    IO.inspect :heartbeat
     :ok = :gen_udp.send(socket, multicast_addr, port, heartbeat(node()))
     Process.send_after(self(), :heartbeat, :rand.uniform(5_000))
     {:noreply, state}
@@ -79,22 +78,20 @@ defmodule Distable.Heartbeat do
           not n in nodelist ->
             case :net_kernel.connect_node(n) do
               true ->
-                IO.inspect {:connected, n}
+                debug "connected to #{inspect n}"
                 :ok
               reason ->
-                Logger.debug "Attempted to connect to node (#{n}) from heartbeat, but failed with #{reason}."
+                debug "attempted to connect to node (#{inspect n}) from heartbeat, but failed with #{reason}."
                 :ok
             end
           :else ->
-            IO.inspect {:heartbeat, n}
             :ok
         end
       _ ->
         :ok
     end
   end
-  defp handle_heartbeat(packet) do
-    IO.inspect {:garbage, packet}
+  defp handle_heartbeat(_packet) do
     :ok
   end
 end

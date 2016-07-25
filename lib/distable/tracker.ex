@@ -1,29 +1,54 @@
 defmodule Distable.Tracker do
   use GenServer
   alias Distable.ETS
+  import Distable.Logger
 
-  @max_hash  134_217_728 # :math.pow(2,27)
+  @max_hash   134_217_728 # :math.pow(2,27)
+  @name_table :distable_names # {name, pid, monitor_ref, mfa, props}
 
+  @doc """
+  Register an MFA with the given name
+  """
+  @spec register(term, mfa) :: {:ok, pid} | {:error, term}
   def register(name, {m,f,a})
     when is_atom(m) and is_atom(f) and is_list(a) do
     GenServer.call(__MODULE__, {:register, name, {m,f,a}})
   end
 
+  @doc """
+  Unregister the given name
+  """
+  @spec unregister(term) :: :ok | {:error, term}
   def unregister(name) do
     GenServer.call(__MODULE__, {:unregister, name})
   end
 
+  @doc """
+  Register a property in the metadata for `pid`
+  """
+  @spec register_property(pid(), term) :: :ok
   def register_property(pid, prop) do
-    GenServer.call({__MODULE__, :erlang.node(pid)}, {:register_property, pid, prop})
+    GenServer.cast({__MODULE__, :erlang.node(pid)}, {:register_property, pid, prop})
   end
 
+  @doc """
+  Get all pids which have the provided property in their metadata
+  """
+  @spec get_by_property(term) :: [pid()]
   def get_by_property(prop) do
-    GenServer.call(__MODULE__, {:get_by_property, prop})
+    ETS.get_names()
+    |> Enum.filter_map(fn {_n,_pid,_ref,_mfa,props} -> prop in props end,
+                       fn {_n, pid,_ref,_mfa,_props} -> pid end)
   end
 
+  @doc """
+  Get the PID for a given name. If the name is not registered,
+  then `:undefined` is returned.
+  """
+  @spec whereis(term) :: pid() | :undefined
   def whereis(name) do
     case ETS.get_name(name) do
-      {_name, {pid, _}} ->
+      [{_name, pid, _ref, _mfa, _props}] ->
         pid
       _ ->
         this_node = Node.self
@@ -36,6 +61,10 @@ defmodule Distable.Tracker do
     end
   end
 
+  @doc """
+  Call the process registered with the given name.
+  """
+  @spec call(term, term, pos_integer) :: term | {:error, term}
   def call(name, message, timeout) do
     case whereis(name) do
       :undefined ->
@@ -45,10 +74,14 @@ defmodule Distable.Tracker do
     end
   end
 
+  @doc """
+  Cast a message to the process registered with the given name.
+  """
+  @spec cast(term, term) :: :ok
   def cast(name, message) do
     case whereis(name) do
       :undefined ->
-        {:error, {:name_not_found, name}}
+        :ok
       pid when is_pid(pid) ->
         :gen_server.cast(pid, message)
     end
@@ -63,7 +96,10 @@ defmodule Distable.Tracker do
     {:ok, nil}
   end
 
-  def handle_call({:register, name, mfa}, _from, state) do
+  def handle_call({:register, name, mfa}, from, state) do
+    handle_call({:register, name, mfa, []}, from, state)
+  end
+  def handle_call({:register, name, mfa, props}, _from, state) do
     case whereis(name) do
       pid when is_pid(pid) ->
         {:reply, {:error, {:already_registered, pid}}, state}
@@ -71,10 +107,10 @@ defmodule Distable.Tracker do
         this_node = Node.self
         case node_for_name(name) do
           ^this_node ->
-            res = ETS.register_name(name, mfa)
+            res = ETS.register_name(name, mfa, props)
             {:reply, res, state}
           node ->
-            res = GenServer.call({__MODULE__, node}, {:register, name, mfa}, 5_000)
+            res = GenServer.call({__MODULE__, node}, {:register, name, mfa, props}, 5_000)
             {:reply, res, state}
         end
     end
@@ -94,25 +130,16 @@ defmodule Distable.Tracker do
     end
     {:reply, :ok, state}
   end
-  def handle_call({:register_property, pid, prop}, _from, state) do
-    res = ETS.register_property(pid, prop)
-    {:reply, res, state}
-  end
-  def handle_call({:get_by_property, prop}, _from, state) do
-    {res, _} = :rpc.multicall(ETS, :get_by_property, [prop])
-    results = List.flatten(res)
-    {:reply, results, state}
-  end
-  def handle_call({:handoff, name, mfa}, _from, state) do
-    case ETS.register_name(name, mfa) do
+  def handle_call({:handoff, name, mfa, props}, _from, state) do
+    case ETS.register_name(name, mfa, props) do
       {:ok, pid} ->
         {:reply, {:ok, pid}, state}
       err ->
         {:reply, err, state}
     end
   end
-  def handle_call({:handoff, name, mfa, handoff_state}, _from, state) do
-    case ETS.register_name(name, mfa) do
+  def handle_call({:handoff, name, mfa, props, handoff_state}, _from, state) do
+    case ETS.register_name(name, mfa, props) do
       {:ok, pid} ->
         GenServer.call(pid, {:distable, :end_handoff, handoff_state})
         {:reply, {:ok, pid}, state}
@@ -120,30 +147,32 @@ defmodule Distable.Tracker do
         {:reply, err, state}
     end
   end
+  def handle_call({:sync, from_node, names}, _from, state) do
+    local_names = ETS.get_local_names()
+    synchronize_from_node(from_node, names)
+    {:reply, local_names, state}
+  end
   def handle_call(_, _from, state), do: {:noreply, state}
 
+  def handle_cast({:register_property, pid, prop}, state) do
+    ETS.register_property(pid, prop)
+    {:noreply, state}
+  end
+
   def handle_info({:nodeup, node, _info}, state) do
-    old_nodes = ETS.get_nodes()
-    nodelist = Tuple.to_list(old_nodes)
-    cond do
-      node in nodelist -> :ok
-      :else ->
-        new_nodes = Tuple.append(old_nodes, node)
-        ETS.set_nodes(new_nodes)
-        redistribute(old_nodes, new_nodes)
-    end
+    debug "nodeup: #{inspect node}"
+    Task.async(fn ->
+      nodes = Enum.sort(all_nodes())
+      redistribute(nodes)
+      synchronize(nodes)
+    end)
     {:noreply, state}
   end
   def handle_info({:nodedown, node, _info}, state) do
-    old_nodes = ETS.get_nodes()
-    nodelist = Tuple.to_list(old_nodes)
-    cond do
-      node in nodelist ->
-        ni = Enum.find_index(nodelist, fn n -> n == node end)
-        new_nodes = Tuple.delete_at(old_nodes, ni)
-        ETS.set_nodes(new_nodes)
-        redistribute(old_nodes, new_nodes)
-    end
+    debug "nodedown: #{inspect node}"
+    Task.async(fn ->
+      redistribute(Enum.sort(all_nodes()))
+    end)
     {:noreply, state}
   end
   def handle_info(_, state) do
@@ -151,23 +180,55 @@ defmodule Distable.Tracker do
   end
 
   defp node_for_name(name) do
-    case ETS.get_nodes() do
-      [nodes: nodes] ->
-        node_for_hash(nodes, :erlang.phash2(name))
-      _ ->
-        :undefined
-    end
+    node_for_name(Enum.sort(all_nodes()), name)
+  end
+  defp node_for_name(nodes, name) do
+    node_for_hash(nodes, :erlang.phash2(name))
   end
   defp node_for_hash(nodes, hash) do
-    range = div(@max_hash, tuple_size(nodes))
+    range = div(@max_hash, length(nodes))
     node_pos = div(hash, range+1)
-    elem(min(tuple_size(nodes), node_pos), nodes)
+    Enum.at(nodes, min(length(nodes), node_pos))
   end
 
-  defp redistribute(nodes, nodes), do: :ok
-  defp redistribute(_old_nodes, new_nodes) do
+  defp synchronize(nodes) do
+    debug "synchronizing with #{inspect nodes}"
+    local_names = ETS.get_local_names()
+    {replies, _badnodes} = GenServer.multi_call(nodes, __MODULE__, {:sync, Node.self, local_names})
+    for {node, names} <- replies do
+      synchronize_from_node(node, names)
+      debug "synchronized with #{inspect node}"
+    end
+    :ok
+  end
+
+  defp synchronize_from_node(node, names) do
+    # process adds/updates
+    for named <- names do
+      name = elem(named, 0)
+      case :ets.lookup(@name_table, name) do
+        [^named] ->
+          :ok # in sync
+        [_outdated] ->
+          :ets.insert(@name_table, named) # need to sync
+        [] ->
+          :ets.insert(@name_table, named) # missing entirely
+      end
+    end
+    # process stale entries
+    old = MapSet.new(ETS.get_names(node))
+    new = MapSet.new(names)
+    stale = MapSet.difference(old, new)
+    for named <- stale do
+      name = elem(named, 0)
+      :ets.delete(@name_table, name)
+    end
+    :ok
+  end
+
+  defp redistribute(new_nodes) do
+    debug "redistributing across #{inspect new_nodes}"
     this_node = Node.self
-    new_nodes = Enum.sort(Tuple.to_list(new_nodes))
     pos = Enum.find_index(new_nodes, fn n -> n == this_node end)
     range = div(@max_hash, length(new_nodes))
     my_range_from = (pos*range)-range
@@ -176,28 +237,59 @@ defmodule Distable.Tracker do
                     true -> @max_hash
                     false -> my_range_to
                   end
-    for {name, {pid, _ref, {m,f,a}}} <- ETS.get_names() do
+    to_move = ETS.get_names()
+    for {name, pid, _ref, {m,f,a}, props} <- to_move do
       name_hash = :erlang.phash2(name)
       dest_node = node_for_hash(new_nodes, name_hash)
       cond do
         name_hash >= my_range_from and name_hash <= my_range_to ->
+          debug "nothing to do for #{inspect name}, already home"
           :ok
         :erlang.node(pid) == dest_node ->
+          debug "nothing to do for #{inspect name}, already home on #{inspect dest_node}"
           :ok
-        :else ->
-          case GenServer.call(pid, {:distable, :begin_handoff}) do
-            :restart ->
+        Node.ping(node(pid)) == :pong ->
+          try do
+            case GenServer.call(pid, {:distable, :begin_handoff}) do
+              :restart ->
+                debug "handoff requested restart of #{inspect name}"
+                send(pid, {:distable, :die})
+                ETS.unregister_name(name)
+                GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+              {:resume, state} ->
+                debug "handoff requested resume of #{inspect name}"
+                send(pid, {:distable, :die})
+                ETS.unregister_name(name)
+                GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, props, state})
+              :ignore ->
+                debug "handoff ignored for #{inspect name}"
+                nil
+              _ ->
+                # bad return value, so we're going to restart
+                debug "handoff return value was bad, restarting #{inspect name}"
+                send(pid, {:distable, :die})
+                ETS.unregister_name(name)
+                GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+            end
+          catch
+            _exit, {:noproc, _} ->
+              debug "cannot handoff response (:noproc), restarting #{inspect name}"
+              ETS.unregister_name(name)
+              GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+            _exit, {:timeout, _} ->
+              debug "cannot handoff response (:timeout), restarting #{inspect name}"
               send(pid, {:distable, :die})
               ETS.unregister_name(name)
-              GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}})
-            {:resume, state} ->
-              send(pid, {:distable, :die})
-              ETS.unregister_name(name)
-              GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, state})
-            :ignore ->
-              nil
+              GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
           end
+        :else ->
+          debug "cannot handoff, restarting #{inspect name}"
+          ETS.unregister_name(name)
+          GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
       end
     end
+    :ok
   end
+
+  defp all_nodes(), do: [Node.self|Node.list(:connected)]
 end

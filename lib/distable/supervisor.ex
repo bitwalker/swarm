@@ -7,6 +7,7 @@ defmodule Distable.Supervisor do
 
   def init(_) do
     children = [
+      worker(Distable.ETS, []),
       worker(Distable.Tracker, []),
       worker(Distable.Heartbeat, [])
     ]

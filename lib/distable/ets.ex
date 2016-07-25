@@ -26,7 +26,7 @@ defmodule Distable.ETS do
   def start_link(), do: GenServer.start_link(__MODULE__, [], name: {:local, __MODULE__})
 
   def init(_) do
-    {:ok, %State{}, 0}
+    {:ok, %State{nodes: {Node.self}}, 0}
   end
 
   def handle_call(:nodes, _from, state) do

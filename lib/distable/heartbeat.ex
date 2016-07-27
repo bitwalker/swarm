@@ -28,6 +28,7 @@ defmodule Distable.Heartbeat do
     opts = Application.get_all_env(:distable)
     port = Keyword.get(opts, :port, @default_port)
     ip = Keyword.get(opts, :ip_addr, @default_addr)
+    ttl = Keyword.get(opts, :multicast_ttl, 1)
     multicast_addr = case Keyword.get(opts, :multicast_addr, @default_multicast_addr) do
                        {_a,_b,_c,_d} = ip -> ip
                        ip when is_binary(ip) ->
@@ -40,7 +41,7 @@ defmodule Distable.Heartbeat do
           ip: ip,
           reuseaddr: true,
           broadcast: true,
-          multicast_ttl: 4,
+          multicast_ttl: ttl,
           multicast_loop: true,
           add_membership: {multicast_addr, {0,0,0,0}}
         ])

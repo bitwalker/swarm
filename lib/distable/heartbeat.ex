@@ -45,7 +45,7 @@ defmodule Distable.Heartbeat do
           multicast_loop: true,
           add_membership: {multicast_addr, {0,0,0,0}}
         ])
-    Process.send_after(self(), :heartbeat, :rand.uniform(5_000))
+    Process.send_after(self(), :heartbeat, 0)
     {:ok, {multicast_addr, port, socket}}
   end
 

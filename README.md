@@ -76,7 +76,7 @@ defmodule MyApp.Worker do
   random recurring interval to stdout.
   """
   def start_link([name: name]), do: GenServer.start_link(__MODULE__, [name])
-  def init(name), do: {:ok, :rand.uniform(5_000), {name, 0}}
+  def init(name), do: {:ok, {name, :rand.uniform(5_000)}, 0}
 
   # called when a handoff has been initiated due to changes
   # in cluster topology
@@ -93,7 +93,8 @@ defmodule MyApp.Worker do
 
   def handle_info(:timeout, {name, delay}) do
     IO.puts "#{inspect name} says hi!"
-    Process.send_after(self(), :timeout, {name, delay})
+    Process.send_after(self(), :timeout, delay)
+    {:noreply, {name, delay}}
   end
   # this message is sent when this process should die
   # so that it may shutdown cleanly

@@ -107,7 +107,26 @@ end
 defmodule MyApp.Listener do
   ...snip...
   def start_worker(name) do
-    Distable.register(name, MyApp.Supervisor, :register, [name: name])
+    # Starts worker and registers name in the cluster
+    {:ok, pid} = Distable.register(name, MyApp.Supervisor, :register, [name: name])
+    # Registers some metadata to be associated with the worker
+    Distable.register_property(pid, :foo)
+  end
+  # Gets the pid of the worker with the given name
+  def get_worker(name) do
+    Distable.whereis(name)
+  end
+  # Gets all of the pids associated with workers with the given property
+  def get_foos() do
+    Distable.get_by_property(:foo)
+  end
+  # Use like :gen_server.call
+  def call_worker(name, msg) do
+    Distable.call(name, msg)
+  end
+  # Use like :gen_server.cast
+  def send_worker(name, msg) do
+    Distable.cast(name, msg)
   end
   ...snip...
 end

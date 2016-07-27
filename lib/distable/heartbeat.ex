@@ -16,7 +16,13 @@ defmodule Distable.Heartbeat do
   @default_addr {0,0,0,0}
   @default_multicast_addr {230,0,0,251}
 
-  def start_link(), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
+  def start_link() do
+    cluster? = Application.get_env(:distable, :cluster, true)
+    case cluster do
+      true  -> GenServer.start_link(__MODULE__, [], name: __MODULE__)
+      false -> :ignore
+    end
+  end
 
   def init(_) do
     opts = Application.get_all_env(:distable)

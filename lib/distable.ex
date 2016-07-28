@@ -1,4 +1,7 @@
 defmodule Distable do
+  @moduledoc """
+  This is the public Elixir API for `:distable`.
+  """
   use Application
 
   def start(_type, _args) do

@@ -1,4 +1,12 @@
 defmodule Distable.Tracker do
+  @moduledoc """
+  The Tracker process is responsible for watching for changes to
+  the cluster, and shifting processes around accordingly. It also
+  handles talking to the registry (ETS) to register names, properties,
+  unregister names, etc.
+
+  This API should be considered internal-use only.
+  """
   use GenServer
   alias Distable.ETS
   import Distable.Logger

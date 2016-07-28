@@ -1,13 +1,27 @@
-defmodule Distable.Heartbeat do
+defmodule Distable.Cluster.Gossip do
   @moduledoc """
-  This process is responsible for multicasting heartbeats containing
-  this node's name, which is used by receiving nodes to establish a
-  connection, and thus form a dynamic cluster of nodes. This process
-  is also a receiver of those same heartbeats, and handles connecting
-  to remote nodes.
+  This clustering strategy uses multicast UDP to gossip node names
+  to other nodes on the network. These packets are listened for on
+  each node as well, and a connection will be established between the
+  two nodes if they are reachable on the network, and share the same
+  magic cookie. In this way, a cluster of nodes may be formed dynamically.
 
-  The heartbeat protocol uses UDP, on a configurable port and multicast
-  address. By default, it uses port 45892 and multicast address 224.0.0.251.
+  The gossip protocol is extremely simple, with a prelude followed by the node
+  name which sent the packet. The node name is paresed from the packet, and a
+  connection attempt is made. It will fail if the two nodes do not share a cookie.
+
+  By default, the gossip occurs on port 45892, using the multicast address 230.0.0.251
+
+  You may configure the multicast address, the interface address to bind to, the port,
+  and the TTL of the packets, using the following settings:
+
+      config :distable,
+        port: 45892,
+        if_addr: "0.0.0.0",
+        multicast_addr: "230.0.0.251",
+        multicast_ttl: 1
+
+  A TTL of 1 will limit packets to the local network, and is the default TTL.
   """
   use GenServer
   import Distable.Logger
@@ -17,18 +31,14 @@ defmodule Distable.Heartbeat do
   @default_multicast_addr {230,0,0,251}
 
   def start_link() do
-    cluster? = Application.get_env(:distable, :cluster, true)
-    case cluster do
-      true  -> GenServer.start_link(__MODULE__, [], name: __MODULE__)
-      false -> :ignore
-    end
+    GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
   def init(_) do
     opts = Application.get_all_env(:distable)
     port = Keyword.get(opts, :port, @default_port)
-    ip = Keyword.get(opts, :ip_addr, @default_addr)
-    ttl = Keyword.get(opts, :multicast_ttl, 1)
+    ip   = Keyword.get(opts, :if_addr, @default_addr)
+    ttl  = Keyword.get(opts, :multicast_ttl, 1)
     multicast_addr = case Keyword.get(opts, :multicast_addr, @default_multicast_addr) do
                        {_a,_b,_c,_d} = ip -> ip
                        ip when is_binary(ip) ->

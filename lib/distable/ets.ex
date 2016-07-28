@@ -1,5 +1,11 @@
 defmodule Distable.ETS do
-  @moduledoc false
+  @moduledoc """
+  This process is the backing store for the registry. It should
+  not be accessed directly, except by the Tracker process.
+
+  It starts and owns an ETS table where the registry information is
+  stored. It also exposes the registry via an API consumed by the Tracker.
+  """
   use GenServer
   import Distable.Logger
 

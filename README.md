@@ -24,6 +24,7 @@ end
   handoff should simply restart the process on the new node, start
   the process and then send it the handoff message containing state,
   or ignore the handoff and remain on it's current node.
+- both an Erlang and Elixir API
 
 ## Restrictions
 
@@ -140,4 +141,3 @@ MIT
 
 - testing
 - documentation
-- code cleanup

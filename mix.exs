@@ -22,7 +22,7 @@ defmodule Swarm.Mixfile do
   end
 
   defp package do
-    [files: ["lib", "src", "priv", "mix.exs", "README.md", "LICENSE.md"],
+    [files: ["lib", "src", "mix.exs", "README.md", "LICENSE.md"],
      maintainers: ["Paul Schoenfelder"],
      licenses: ["MIT"],
      links: %{ "Gitub": "https://github.com/bitwalker/swarm" }]

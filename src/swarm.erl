@@ -1,4 +1,4 @@
--module(distable).
+-module(swarm).
 
 -export([
   start/2, stop/1,
@@ -7,18 +7,18 @@
   call/2, call/3, cast/2
 ]).
 
--define(TRACKER, 'Elixir.Distable.Tracker').
+-define(TRACKER, 'Elixir.Swarm.Tracker').
 
 %% @doc You shouldn't need this if you've added the
-%% the `distable` application to your applications
+%% the `swarm` application to your applications
 %% list, but it's here if you need it.
 %% @end
 start(Type, Args) ->
-    'Elixir.Distable':start(Type, Args).
+    'Elixir.Swarm':start(Type, Args).
 
 %% Same as above, use if you need it.
 stop(State) ->
-    'Elixir.Distable':stop(State).
+    'Elixir.Swarm':stop(State).
 
 %% @doc Registers a name to a process started by the provided
 %% module/function/args. If the MFA does not start a process,

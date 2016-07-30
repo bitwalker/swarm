@@ -1,4 +1,4 @@
-defmodule Distable.Logger do
+defmodule Swarm.Logger do
   @moduledoc false
   require Logger
 
@@ -8,12 +8,12 @@ defmodule Distable.Logger do
   @spec debug(String.t) :: :ok
   def debug(message) do
     if log? do
-      Logger.debug("(distable) #{message}")
+      Logger.debug("(swarm) #{message}")
     else
       :ok
     end
   end
 
-  defp log?, do: Application.get_env(:distable, :debug, false)
+  defp log?, do: Application.get_env(:swarm, :debug, false)
 
 end

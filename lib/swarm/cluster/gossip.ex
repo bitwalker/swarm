@@ -1,4 +1,4 @@
-defmodule Distable.Cluster.Gossip do
+defmodule Swarm.Cluster.Gossip do
   @moduledoc """
   This clustering strategy uses multicast UDP to gossip node names
   to other nodes on the network. These packets are listened for on
@@ -15,7 +15,7 @@ defmodule Distable.Cluster.Gossip do
   You may configure the multicast address, the interface address to bind to, the port,
   and the TTL of the packets, using the following settings:
 
-      config :distable,
+      config :swarm,
         port: 45892,
         if_addr: "0.0.0.0",
         multicast_addr: "230.0.0.251",
@@ -24,7 +24,7 @@ defmodule Distable.Cluster.Gossip do
   A TTL of 1 will limit packets to the local network, and is the default TTL.
   """
   use GenServer
-  import Distable.Logger
+  import Swarm.Logger
 
   @default_port 45892
   @default_addr {0,0,0,0}
@@ -35,7 +35,7 @@ defmodule Distable.Cluster.Gossip do
   end
 
   def init(_) do
-    opts = Application.get_all_env(:distable)
+    opts = Application.get_all_env(:swarm)
     port = Keyword.get(opts, :port, @default_port)
     ip   = Keyword.get(opts, :if_addr, @default_addr)
     ttl  = Keyword.get(opts, :multicast_ttl, 1)

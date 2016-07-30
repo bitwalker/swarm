@@ -1,4 +1,4 @@
-defmodule Distable.Cluster.Epmd do
+defmodule Swarm.Cluster.Epmd do
   @moduledoc """
   This clustering strategy uses EPMD, which means connecting nodes in
   the cluster is a manual process. This strategy is primarily useful if
@@ -12,7 +12,7 @@ defmodule Distable.Cluster.Epmd do
   be picked up automatically.
   """
   use GenServer
-  import Distable.Logger
+  import Swarm.Logger
 
   def start_link(), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
   def init(_) do

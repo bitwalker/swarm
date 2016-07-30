@@ -1,4 +1,4 @@
-# Distable
+# Swarm
 
 This project is an attempt at a smart distributed registry, which automatically
 shifts processes around based on changes to cluster topology. It is designed
@@ -8,7 +8,7 @@ for Elixir and Erlang apps built on OTP conventions.
 
 ```elixir
 defp deps do
-  [{:distable, "~> 0.1.0"}]
+  [{:swarm, "~> 0.1.0"}]
 end
 ```
 
@@ -24,29 +24,29 @@ end
   handoff should simply restart the process on the new node, start
   the process and then send it the handoff message containing state,
   or ignore the handoff and remain on it's current node.
+- can do simple registration with `{:via, :swarm, name}`
 - both an Erlang and Elixir API
 
 ## Restrictions
 
-- currently cannot be used with the `via` tuple for name registration
-  as part of `start_link`, this may change
-- registrations with `distable` are done with name and module/function/args,
-  where the MFA must return a `{:ok, pid}` tuple, or a plain pid. This is how
-  `distable` handles process handoff between nodes, and automatic restarts when nodedown
+- auto-balancing of processes in the cluster require registrations be done via
+  `register_name/4`, which takes module/function/args params, and handles starting
+  the process for you. The MFA must return `{:ok, pid}` or a plain pid.
+  This is how `swarm` handles process handoff between nodes, and automatic restarts when nodedown
   events occur and the cluster topology changes.
 
 ## Example
 
 The following example shows a simple case where workers are dynamically created in response
 to some events under a supervisor, and we want them to be distributed across the cluster and
-be discoverable by name from anywhere in the cluster. Distable is a perfect fit for this
+be discoverable by name from anywhere in the cluster. Swarm is a perfect fit for this
 situation.
 
 ```elixir
 defmodule MyApp.WorkerSup do
   @moduledoc """
   This is the supervisor for the worker processes you wish to distribute
-  across the cluster, Distable is primarily designed around the use case
+  across the cluster, Swarm is primarily designed around the use case
   where you are dynamically creating many workers in response to events. It
   works with other use cases as well, but that's the ideal use case.
   """
@@ -81,13 +81,13 @@ defmodule MyApp.Worker do
 
   # called when a handoff has been initiated due to changes
   # in cluster topology
-  def handle_call({:distable, :begin_handoff}, {name, delay}) do
+  def handle_call({:swarm, :begin_handoff}, {name, delay}) do
     {:reply, {:resume, delay}, {name, delay}}
   end
   # called after the process has been restarted and state
   # is being handed off to the new process, this is only
   # sent if the return to `begin_handoff` was `{:resume, state}`.
-  def handle_call({:distable, :end_handoff, delay}, {name, _}) do
+  def handle_call({:swarm, :end_handoff, delay}, {name, _}) do
     {:reply, :ok, {name, delay}}
   end
   def handle_call(_, _, state), do: {:noreply, state}
@@ -99,7 +99,7 @@ defmodule MyApp.Worker do
   end
   # this message is sent when this process should die
   # so that it may shutdown cleanly
-  def handle_info({:distable, :die}, state) do
+  def handle_info({:swarm, :die}, state) do
     {:stop, :shutdown, state}
   end
   def handle_info(_, state), do: {:noreply, state}
@@ -109,25 +109,23 @@ defmodule MyApp.Listener do
   ...snip...
   def start_worker(name) do
     # Starts worker and registers name in the cluster
-    {:ok, pid} = Distable.register(name, MyApp.Supervisor, :register, [name: name])
+    {:ok, pid} = Swarm.register(name, MyApp.Supervisor, :register, [name: name])
     # Registers some metadata to be associated with the worker
-    Distable.register_property(pid, :foo)
+    Swarm.register_property(pid, :foo)
   end
   # Gets the pid of the worker with the given name
   def get_worker(name) do
-    Distable.whereis(name)
+    Swarm.whereis_name(name)
   end
   # Gets all of the pids associated with workers with the given property
   def get_foos() do
-    Distable.get_by_property(:foo)
+    Swarm.get_by_property(:foo)
   end
-  # Use like :gen_server.call
   def call_worker(name, msg) do
-    Distable.call(name, msg)
+    GenServer.call({:via, :swarm, name}, msg)
   end
-  # Use like :gen_server.cast
   def send_worker(name, msg) do
-    Distable.cast(name, msg)
+    GenServer.cast({:via, :swarm, name}, msg)
   end
   ...snip...
 end

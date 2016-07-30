@@ -1,4 +1,4 @@
-defmodule Distable.ETS do
+defmodule Swarm.ETS do
   @moduledoc """
   This process is the backing store for the registry. It should
   not be accessed directly, except by the Tracker process.
@@ -7,12 +7,12 @@ defmodule Distable.ETS do
   stored. It also exposes the registry via an API consumed by the Tracker.
   """
   use GenServer
-  import Distable.Logger
+  import Swarm.Logger
 
   @type props :: [term]
   @type named :: {term, pid(), reference(), mfa, props}
 
-  @name_table :distable_names # {name, pid, monitor_ref, mfa, props}
+  @name_table :swarm_names # {name, pid, monitor_ref, mfa, props}
 
   @spec get_name(term) :: named :: nil
   def get_name(name) do
@@ -42,7 +42,7 @@ defmodule Distable.ETS do
       fn {name, pid, _ref, mfa, props} -> {name, pid, nil, mfa, props} end)
   end
 
-  @spec register_name(term, mfa, props) :: :ok | {:error, term}
+  @spec register_name(term, mfa | pid, props) :: :ok | {:error, term}
   def register_name(name, mfa, props \\ []) do
     GenServer.call(__MODULE__, {:register_name, name, mfa, props})
   end
@@ -61,6 +61,14 @@ defmodule Distable.ETS do
     {:ok, nil, 0}
   end
 
+  def handle_call({:register_name, name, pid, props}, _from, state) when is_pid(pid) do
+    debug "registering #{inspect name}"
+    ref = Process.monitor(pid)
+    :ets.insert(@name_table, {name, pid, ref, nil, props})
+    # Track this name on all other nodes
+    :rpc.abcast(Node.list(:connected), __MODULE__, {:track_name, name, pid, nil, props})
+    {:reply, {:ok, pid}, state}
+  end
   def handle_call({:register_name, name, {m,f,a}=mfa, props}, _from, state) do
     try do
       pid = case apply(m, f, a) do
@@ -75,7 +83,6 @@ defmodule Distable.ETS do
           ref = Process.monitor(pid)
           :ets.insert(@name_table, {name, pid, ref, mfa, props})
           # Track this name on all other nodes
-          connected = Node.list(:connected)
           :rpc.abcast(Node.list(:connected), __MODULE__, {:track_name, name, pid, mfa, props})
           {:reply, {:ok, pid}, state}
         {:error, _} = err ->
@@ -152,7 +159,7 @@ defmodule Distable.ETS do
   def handle_info(_, state), do: {:noreply, state}
 
   defp create_or_get_table(name) do
-    heir = {:heir, Process.whereis(Distable.Supervisor), ""}
+    heir = {:heir, Process.whereis(Swarm.Supervisor), ""}
     case :ets.info(name) do
       :undefined ->
         :ets.new(name, [:named_table, :public, :set, {:keypos, 1}, heir])

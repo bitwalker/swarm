@@ -1,4 +1,4 @@
-defmodule Distable.Tracker do
+defmodule Swarm.Tracker do
   @moduledoc """
   The Tracker process is responsible for watching for changes to
   the cluster, and shifting processes around accordingly. It also
@@ -8,19 +8,24 @@ defmodule Distable.Tracker do
   This API should be considered internal-use only.
   """
   use GenServer
-  alias Distable.ETS
-  import Distable.Logger
+  alias Swarm.ETS
+  import Swarm.Logger
 
   @max_hash   134_217_728 # :math.pow(2,27)
-  @name_table :distable_names # {name, pid, monitor_ref, mfa, props}
+  @name_table :swarm_names # {name, pid, monitor_ref, mfa, props}
 
   @doc """
-  Register an MFA with the given name
+  Register an MFA with the given name. If a pid is provided, the process will only be
+  tracked, it will not be moved, or restarted when it's parent node goes
+  down.
   """
-  @spec register(term, mfa) :: {:ok, pid} | {:error, term}
+  @spec register(term, mfa | pid) :: {:ok, pid} | {:error, term}
   def register(name, {m,f,a})
     when is_atom(m) and is_atom(f) and is_list(a) do
     GenServer.call(__MODULE__, {:register, name, {m,f,a}})
+  end
+  def register(name, pid) when is_pid(pid) do
+    GenServer.call(__MODULE__, {:register, name, pid})
   end
 
   @doc """
@@ -66,32 +71,6 @@ defmodule Distable.Tracker do
           node ->
             :rpc.call(node, __MODULE__, :whereis, [name], 5_000)
         end
-    end
-  end
-
-  @doc """
-  Call the process registered with the given name.
-  """
-  @spec call(term, term, pos_integer) :: term | {:error, term}
-  def call(name, message, timeout) do
-    case whereis(name) do
-      :undefined ->
-        {:error, {:name_not_found, name}}
-      pid when is_pid(pid) ->
-        :gen_server.call(pid, message, timeout)
-    end
-  end
-
-  @doc """
-  Cast a message to the process registered with the given name.
-  """
-  @spec cast(term, term) :: :ok
-  def cast(name, message) do
-    case whereis(name) do
-      :undefined ->
-        :ok
-      pid when is_pid(pid) ->
-        :gen_server.cast(pid, message)
     end
   end
 
@@ -149,8 +128,13 @@ defmodule Distable.Tracker do
   def handle_call({:handoff, name, mfa, props, handoff_state}, _from, state) do
     case ETS.register_name(name, mfa, props) do
       {:ok, pid} ->
-        GenServer.call(pid, {:distable, :end_handoff, handoff_state})
-        {:reply, {:ok, pid}, state}
+        case mfa do
+          nil ->
+            {:reply, {:ok, pid}, state}
+          _ ->
+            GenServer.call(pid, {:swarm, :end_handoff, handoff_state})
+            {:reply, {:ok, pid}, state}
+        end
       err ->
         {:reply, err, state}
     end
@@ -246,56 +230,61 @@ defmodule Distable.Tracker do
                     false -> my_range_to
                   end
     to_move = ETS.get_names()
-    for {name, pid, _ref, {m,f,a}, props} <- to_move do
-      name_hash = :erlang.phash2(name)
-      dest_node = node_for_hash(new_nodes, name_hash)
-      cond do
-        name_hash >= my_range_from and name_hash <= my_range_to ->
-          debug "nothing to do for #{inspect name}, already home"
+    for {name, pid, _ref, mfa, props} <- to_move do
+      case mfa do
+        nil ->
           :ok
-        :erlang.node(pid) == dest_node ->
-          debug "nothing to do for #{inspect name}, already home on #{inspect dest_node}"
-          :ok
-        Node.ping(node(pid)) == :pong ->
-          try do
-            case GenServer.call(pid, {:distable, :begin_handoff}) do
-              :restart ->
-                debug "handoff requested restart of #{inspect name}"
-                send(pid, {:distable, :die})
-                ETS.unregister_name(name)
-                GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
-              {:resume, state} ->
-                debug "handoff requested resume of #{inspect name}"
-                send(pid, {:distable, :die})
-                ETS.unregister_name(name)
-                GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, props, state})
-              :ignore ->
-                debug "handoff ignored for #{inspect name}"
-                nil
-              _ ->
-                # bad return value, so we're going to restart
-                debug "handoff return value was bad, restarting #{inspect name}"
-                send(pid, {:distable, :die})
-                ETS.unregister_name(name)
-                GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
-            end
-          catch
-            _exit, {:noproc, _} ->
-              debug "cannot handoff response (:noproc), restarting #{inspect name}"
-              ETS.unregister_name(name)
-              GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
-            _exit, {:timeout, _} ->
-              debug "cannot handoff response (:timeout), restarting #{inspect name}"
-              send(pid, {:distable, :die})
+        {m,f,a} ->
+          name_hash = :erlang.phash2(name)
+          dest_node = node_for_hash(new_nodes, name_hash)
+          cond do
+            name_hash >= my_range_from and name_hash <= my_range_to ->
+              debug "nothing to do for #{inspect name}, already home"
+              :ok
+            :erlang.node(pid) == dest_node ->
+              debug "nothing to do for #{inspect name}, already home on #{inspect dest_node}"
+              :ok
+            Node.ping(node(pid)) == :pong ->
+              try do
+                case GenServer.call(pid, {:swarm, :begin_handoff}) do
+                  :restart ->
+                    debug "handoff requested restart of #{inspect name}"
+                    send(pid, {:swarm, :die})
+                    ETS.unregister_name(name)
+                    GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+                  {:resume, state} ->
+                    debug "handoff requested resume of #{inspect name}"
+                    send(pid, {:swarm, :die})
+                    ETS.unregister_name(name)
+                    GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, props, state})
+                  :ignore ->
+                    debug "handoff ignored for #{inspect name}"
+                    nil
+                  _ ->
+                    # bad return value, so we're going to restart
+                    debug "handoff return value was bad, restarting #{inspect name}"
+                    send(pid, {:swarm, :die})
+                    ETS.unregister_name(name)
+                    GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+                end
+              catch
+                _exit, {:noproc, _} ->
+                  debug "cannot handoff response (:noproc), restarting #{inspect name}"
+                  ETS.unregister_name(name)
+                  GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+                _exit, {:timeout, _} ->
+                  debug "cannot handoff response (:timeout), restarting #{inspect name}"
+                  send(pid, {:swarm, :die})
+                  ETS.unregister_name(name)
+                  GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+              end
+            :else ->
+              debug "cannot handoff, restarting #{inspect name}"
               ETS.unregister_name(name)
               GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
           end
-        :else ->
-          debug "cannot handoff, restarting #{inspect name}"
-          ETS.unregister_name(name)
-          GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+        end
       end
-    end
     :ok
   end
 

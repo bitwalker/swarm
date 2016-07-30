@@ -111,7 +111,7 @@ defmodule MyApp.Listener do
     # Starts worker and registers name in the cluster
     {:ok, pid} = Swarm.register(name, MyApp.Supervisor, :register, [name: name])
     # Registers some metadata to be associated with the worker
-    Swarm.register_property(pid, :foo)
+    Swarm.join(:foo, pid)
   end
   # Gets the pid of the worker with the given name
   def get_worker(name) do
@@ -119,13 +119,19 @@ defmodule MyApp.Listener do
   end
   # Gets all of the pids associated with workers with the given property
   def get_foos() do
-    Swarm.get_by_property(:foo)
+    Swarm.members(:foo)
   end
   def call_worker(name, msg) do
     GenServer.call({:via, :swarm, name}, msg)
   end
   def send_worker(name, msg) do
     GenServer.cast({:via, :swarm, name}, msg)
+  end
+  def publish_foos(msg) do
+    Swarm.publish(:foo, msg)
+  end
+  def call_foos(msg) do
+    Swarm.multicall(:foo, msg)
   end
   ...snip...
 end

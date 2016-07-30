@@ -1,6 +1,6 @@
 defmodule Swarm do
   @moduledoc """
-  This is the public Elixir API for `:distable`.
+  This is the public Elixir API for `:swarm`.
   """
   use Application
 
@@ -11,9 +11,9 @@ defmodule Swarm do
   @doc """
   Registers the given name to the given pid, however names
   registered this way will not be shifted when the cluster
-  topology changes, but this allows you to use `:distable` as
+  topology changes, but this allows you to use `:swarm` as
   a distributed process registry, including registering names
-  with `{:via, :distable, name}`.
+  with `{:via, :swarm, name}`.
   """
   @spec register_name(term, pid) :: :yes | :no
   def register_name(name, pid) when is_pid(pid) do
@@ -31,7 +31,7 @@ defmodule Swarm do
 
   This version also returns an ok tuple with the pid if it registers successfully,
   or an error tuple if registration fails. You cannot use this with processes which
-  are already started, it must be started by `:distable`.
+  are already started, it must be started by `:swarm`.
   """
   @spec register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
   def register_name(name, module, function, args)
@@ -48,25 +48,52 @@ defmodule Swarm do
   end
 
   @doc """
-  Add metadata to a registered process.
-  """
-  @spec register_property(pid, term) :: :ok
-  def register_property(pid, prop) do
-    Swarm.Tracker.register_property(pid, prop)
-  end
-
-  @doc """
   Get the pid of a registered name.
   """
   @spec whereis_name(term) :: pid | :undefined
   def whereis_name(name), do: Swarm.Tracker.whereis(name)
 
   @doc """
-  Get a list of pids which have the given property in their
-  metadata.
+  Join a process to a group
   """
-  @spec get_by_property(term) :: [pid]
-  def get_by_property(prop) do
-    Swarm.Tracker.get_by_property(prop)
+  @spec join(term, pid) :: :ok
+  def join(group, pid) when is_pid(pid) do
+    Swarm.Tracker.join_group(group, pid)
+  end
+
+  @doc """
+  Leave a process group
+  """
+  @spec leave(term, pid) :: :ok
+  def leave(group, pid) when is_pid(pid) do
+    Swarm.Tracker.leave_group(group, pid)
+  end
+
+  @doc """
+  Returns a list of pids which are members of the given group.
+  """
+  @spec members(term) :: [pid]
+  def members(group) do
+    Swarm.Tracker.group_members(group)
+  end
+
+  @doc """
+  Publish a message to all members of a group.
+  """
+  @spec publish(term, term) :: :ok
+  def publish(group, msg) do
+    Swarm.Tracker.publish(group, msg)
+  end
+
+  @doc """
+  Call all members of a group and return the results as a list.
+
+  Takes an optional timeout value. Any responses not received within
+  this period are ignored. Default is 5s.
+  """
+  @spec multicall(term, term) :: [any()]
+  @spec multicall(term, term, pos_integer) :: [any()]
+  def multicall(group, msg, timeout \\ 5_000) do
+    Swarm.Tracker.multicall(group, msg, timeout)
   end
 end

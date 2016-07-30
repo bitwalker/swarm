@@ -12,13 +12,9 @@ defmodule Swarm.Tracker do
   import Swarm.Logger
 
   @max_hash   134_217_728 # :math.pow(2,27)
-  @name_table :swarm_names # {name, pid, monitor_ref, mfa, props}
+  @name_table :swarm_names # {name, pid, monitor_ref, mfa, groups}
 
-  @doc """
-  Register an MFA with the given name. If a pid is provided, the process will only be
-  tracked, it will not be moved, or restarted when it's parent node goes
-  down.
-  """
+  @doc false
   @spec register(term, mfa | pid) :: {:ok, pid} | {:error, term}
   def register(name, {m,f,a})
     when is_atom(m) and is_atom(f) and is_list(a) do
@@ -28,40 +24,62 @@ defmodule Swarm.Tracker do
     GenServer.call(__MODULE__, {:register, name, pid})
   end
 
-  @doc """
-  Unregister the given name
-  """
+  @doc false
   @spec unregister(term) :: :ok | {:error, term}
   def unregister(name) do
     GenServer.call(__MODULE__, {:unregister, name})
   end
 
-  @doc """
-  Register a property in the metadata for `pid`
-  """
-  @spec register_property(pid(), term) :: :ok
-  def register_property(pid, prop) do
-    GenServer.cast({__MODULE__, :erlang.node(pid)}, {:register_property, pid, prop})
+  @doc false
+  @spec join_group(term, pid()) :: :ok
+  def join_group(group, pid) do
+    GenServer.cast({__MODULE__, :erlang.node(pid)}, {:join_group, group, pid})
   end
 
-  @doc """
-  Get all pids which have the provided property in their metadata
-  """
-  @spec get_by_property(term) :: [pid()]
-  def get_by_property(prop) do
+  @doc false
+  @spec leave_group(term, pid()) :: :ok
+  def leave_group(group, pid) do
+    GenServer.cast({__MODULE__, :erlang.node(pid)}, {:leave_group, group, pid})
+  end
+
+  @doc false
+  @spec group_members(term) :: [pid()]
+  def group_members(group) do
     ETS.get_names()
-    |> Enum.filter_map(fn {_n,_pid,_ref,_mfa,props} -> prop in props end,
-                       fn {_n, pid,_ref,_mfa,_props} -> pid end)
+    |> Enum.filter_map(fn {_n,_pid,_ref,_mfa,groups} -> group in groups end,
+                       fn {_n, pid,_ref,_mfa,_groups} -> pid end)
   end
 
-  @doc """
-  Get the PID for a given name. If the name is not registered,
-  then `:undefined` is returned.
-  """
+  @doc false
+  @spec publish(term, term) :: :ok
+  def publish(group, msg) do
+    for pid <- group_members(group) do
+      GenServer.cast(pid, msg)
+    end
+    :ok
+  end
+
+  @doc false
+  @spec multicall(term, term) :: [any()]
+  @spec multicall(term, term, pos_integer) :: [any()]
+  def multicall(group, msg, timeout \\ 5_000) do
+    # Executes the call in parallel across 50 processes at a time
+    # then collects the results, discarding nil or exit values
+    group_members(group)
+    |> Enum.chunk(50, 50, [])
+    |> Enum.map(fn pid ->
+      Task.async(fn -> GenServer.call(pid, msg) end)
+    end)
+    |> Task.yield_many(timeout)
+    |> Enum.map(fn {task, result} -> result || Task.shutdown(task, :brutal_kill) end)
+    |> Enum.map(fn {:exit, _} -> false; nil -> false; _ -> true end)
+  end
+
+  @doc false
   @spec whereis(term) :: pid() | :undefined
   def whereis(name) do
     case ETS.get_name(name) do
-      [{_name, pid, _ref, _mfa, _props}] ->
+      [{_name, pid, _ref, _mfa, _groups}] ->
         pid
       _ ->
         this_node = Node.self
@@ -86,7 +104,7 @@ defmodule Swarm.Tracker do
   def handle_call({:register, name, mfa}, from, state) do
     handle_call({:register, name, mfa, []}, from, state)
   end
-  def handle_call({:register, name, mfa, props}, _from, state) do
+  def handle_call({:register, name, mfa, groups}, _from, state) do
     case whereis(name) do
       pid when is_pid(pid) ->
         {:reply, {:error, {:already_registered, pid}}, state}
@@ -94,10 +112,10 @@ defmodule Swarm.Tracker do
         this_node = Node.self
         case node_for_name(name) do
           ^this_node ->
-            res = ETS.register_name(name, mfa, props)
+            res = ETS.register_name(name, mfa, groups)
             {:reply, res, state}
           node ->
-            res = GenServer.call({__MODULE__, node}, {:register, name, mfa, props}, 5_000)
+            res = GenServer.call({__MODULE__, node}, {:register, name, mfa, groups}, 5_000)
             {:reply, res, state}
         end
     end
@@ -117,16 +135,16 @@ defmodule Swarm.Tracker do
     end
     {:reply, :ok, state}
   end
-  def handle_call({:handoff, name, mfa, props}, _from, state) do
-    case ETS.register_name(name, mfa, props) do
+  def handle_call({:handoff, name, mfa, groups}, _from, state) do
+    case ETS.register_name(name, mfa, groups) do
       {:ok, pid} ->
         {:reply, {:ok, pid}, state}
       err ->
         {:reply, err, state}
     end
   end
-  def handle_call({:handoff, name, mfa, props, handoff_state}, _from, state) do
-    case ETS.register_name(name, mfa, props) do
+  def handle_call({:handoff, name, mfa, groups, handoff_state}, _from, state) do
+    case ETS.register_name(name, mfa, groups) do
       {:ok, pid} ->
         case mfa do
           nil ->
@@ -146,8 +164,15 @@ defmodule Swarm.Tracker do
   end
   def handle_call(_, _from, state), do: {:noreply, state}
 
-  def handle_cast({:register_property, pid, prop}, state) do
-    ETS.register_property(pid, prop)
+  def handle_cast({:join_group, group, pid}, state) do
+    ETS.join_group(group, pid)
+    {:noreply, state}
+  end
+  def handle_cast({:leave_group, group, pid}, state) do
+    ETS.leave_group(group, pid)
+    {:noreply, state}
+  end
+  def handle_cast(_, state) do
     {:noreply, state}
   end
 
@@ -230,7 +255,7 @@ defmodule Swarm.Tracker do
                     false -> my_range_to
                   end
     to_move = ETS.get_names()
-    for {name, pid, _ref, mfa, props} <- to_move do
+    for {name, pid, _ref, mfa, groups} <- to_move do
       case mfa do
         nil ->
           :ok
@@ -251,12 +276,12 @@ defmodule Swarm.Tracker do
                     debug "handoff requested restart of #{inspect name}"
                     send(pid, {:swarm, :die})
                     ETS.unregister_name(name)
-                    GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+                    GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
                   {:resume, state} ->
                     debug "handoff requested resume of #{inspect name}"
                     send(pid, {:swarm, :die})
                     ETS.unregister_name(name)
-                    GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, props, state})
+                    GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, groups, state})
                   :ignore ->
                     debug "handoff ignored for #{inspect name}"
                     nil
@@ -265,23 +290,23 @@ defmodule Swarm.Tracker do
                     debug "handoff return value was bad, restarting #{inspect name}"
                     send(pid, {:swarm, :die})
                     ETS.unregister_name(name)
-                    GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+                    GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
                 end
               catch
                 _exit, {:noproc, _} ->
                   debug "cannot handoff response (:noproc), restarting #{inspect name}"
                   ETS.unregister_name(name)
-                  GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+                  GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
                 _exit, {:timeout, _} ->
                   debug "cannot handoff response (:timeout), restarting #{inspect name}"
                   send(pid, {:swarm, :die})
                   ETS.unregister_name(name)
-                  GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+                  GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
               end
             :else ->
               debug "cannot handoff, restarting #{inspect name}"
               ETS.unregister_name(name)
-              GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, props})
+              GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
           end
         end
       end

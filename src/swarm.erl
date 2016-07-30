@@ -2,9 +2,9 @@
 
 -export([
   start/2, stop/1,
-  register/4, register_property/2, unregister/1,
-  whereis/1, get_by_property/1,
-  call/2, call/3, cast/2
+  register_name/2, register_name/4, unregister_name/1, whereis_name/1,
+  join/2, leave/2, members/1,
+  publish/2, multicall/2, multicall/3
 ]).
 
 -define(TRACKER, 'Elixir.Swarm.Tracker').
@@ -20,52 +20,65 @@ start(Type, Args) ->
 stop(State) ->
     'Elixir.Swarm':stop(State).
 
+%% @doc Registers a name to a pid. Should not be used directly,
+%% should only be used with `{via, swarm, Name}`
+-spec register_name(term(), pid()) -> yes | no.
+register_name(Name, Pid) ->
+    case ?TRACKER:register(Name, Pid) of
+        {ok, _} ->
+             yes;
+        _ ->
+             no
+    end.
+
 %% @doc Registers a name to a process started by the provided
 %% module/function/args. If the MFA does not start a process,
 %% an error will be returned.
 %% @end
--spec register(term(), atom(), atom(), [term()]) -> {ok, pid()} | {error, term()}.
-register(Name, Module, Function, Args) ->
+-spec register_name(term(), atom(), atom(), [term()]) -> {ok, pid()} | {error, term()}.
+register_name(Name, Module, Function, Args) ->
     ?TRACKER:register(Name, {Module, Function, Args}).
 
 %% @doc Unregisters a name.
--spec unregister(term()) -> ok.
-unregister(Name) ->
+-spec unregister_name(term()) -> ok.
+unregister_name(Name) ->
     ?TRACKER:unregister(Name).
 
-%% @doc Add metadata to a registered process.
--spec register_property(pid(), term()) -> ok.
-register_property(Pid, Prop) ->
-    ?TRACKER:register_property(Pid, Prop).
-
 %% @doc Get the pid of a registered name.
--spec whereis(term()) -> pid() | undefined.
-whereis(Name) ->
+-spec whereis_name(term()) -> pid() | undefined.
+whereis_name(Name) ->
     ?TRACKER:whereis(Name).
 
-%% @doc Get a list of pids which have the given property in their metadata.
--spec get_by_property(term()) -> [pid].
-get_by_property(Prop) ->
-    ?TRACKER:get_by_property(Prop).
+%% @doc Join a process to a group
+-spec join(term(), pid()) -> ok.
+join(Group, Pid) ->
+    ?TRACKER:join_group(Group, Pid).
 
-%% @doc Call the server associated with a given name.
-%% Use like `gen_server:call/3`
-%% @end
--spec call(term(), term()) -> term() | {error, term()}.
-call(Name, Message) ->
-    call(Name, Message, 5000).
+%% @doc Part a process from a group
+-spec leave(term(), pid()) -> ok.
+leave(Group, Pid) ->
+    ?TRACKER:leave_group(Group, Pid).
 
-%% @doc Call the server associated with a given name.
-%% Same as `call/2`, but takes a timeout value for the call.
-%% Use like `gen_server:call/3`
-%% @end
--spec call(term(), term(), pos_integer()) -> term() | {error, term()}.
-call(Name, Message, Timeout) ->
-    ?TRACKER:call(Name, Message, Timeout).
+%% @doc Get a list of pids which are members of the given group
+-spec members(term()) -> [pid].
+members(Group) ->
+    ?TRACKER:group_members(Group).
 
-%% @doc Cast a message to a server associated with the given name.
-%% Use like `gen_server:cast/2`
+%% @doc Publish a message to all members of a group
+-spec publish(term(), term()) -> ok.
+publish(Group, Message) ->
+    ?TRACKER:publish(Group, Message).
+
+%% @doc Call all members of a group with the given message
+%% and return the results as a list.
 %% @end
--spec cast(term(), term()) -> ok.
-cast(Name, Message) ->
-    ?TRACKER:cast(Name, Message).
+-spec multicall(term(), term()) -> [any()].
+multicall(Group, Message) ->
+    multicall(Group, Message, 5000).
+
+%% @doc Same as multicall/2, but takes a timeout.
+%% Any responses not received within that period are
+%% ignored.
+-spec multicall(term(), term(), pos_integer()) -> [any()].
+multicall(Group, Message, Timeout) ->
+    ?TRACKER:multicall(Group, Message, Timeout).

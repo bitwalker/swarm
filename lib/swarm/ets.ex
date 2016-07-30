@@ -9,10 +9,10 @@ defmodule Swarm.ETS do
   use GenServer
   import Swarm.Logger
 
-  @type props :: [term]
-  @type named :: {term, pid(), reference(), mfa, props}
+  @type groups :: [term]
+  @type named :: {term, pid(), reference(), mfa, groups}
 
-  @name_table :swarm_names # {name, pid, monitor_ref, mfa, props}
+  @name_table :swarm_names # {name, pid, monitor_ref, mfa, groups}
 
   @spec get_name(term) :: named :: nil
   def get_name(name) do
@@ -39,19 +39,21 @@ defmodule Swarm.ETS do
     Enum.filter_map(
       :ets.tab2list(@name_table),
       fn named -> node(elem(named, 1)) == this_node end,
-      fn {name, pid, _ref, mfa, props} -> {name, pid, nil, mfa, props} end)
+      fn {name, pid, _ref, mfa, groups} -> {name, pid, nil, mfa, groups} end)
   end
 
-  @spec register_name(term, mfa | pid, props) :: :ok | {:error, term}
-  def register_name(name, mfa, props \\ []) do
-    GenServer.call(__MODULE__, {:register_name, name, mfa, props})
+  @spec register_name(term, mfa | pid, groups) :: :ok | {:error, term}
+  def register_name(name, mfa, groups \\ []) do
+    GenServer.call(__MODULE__, {:register_name, name, mfa, groups})
   end
 
   @spec unregister_name(term) :: :ok
   def unregister_name(name), do: GenServer.call(__MODULE__, {:unregister_name, name})
 
-  @spec register_property(pid(), term) :: :ok
-  def register_property(pid, prop), do: GenServer.call(__MODULE__, {:register_property, pid, prop})
+  @spec join_group(term, pid()) :: :ok
+  def join_group(group, pid), do: GenServer.call(__MODULE__, {:join_group, group, pid})
+  @spec leave_group(term, pid()) :: :ok
+  def leave_group(group, pid), do: GenServer.call(__MODULE__, {:leave_group, group, pid})
 
   ## GenServer API
 
@@ -61,15 +63,15 @@ defmodule Swarm.ETS do
     {:ok, nil, 0}
   end
 
-  def handle_call({:register_name, name, pid, props}, _from, state) when is_pid(pid) do
+  def handle_call({:register_name, name, pid, groups}, _from, state) when is_pid(pid) do
     debug "registering #{inspect name}"
     ref = Process.monitor(pid)
-    :ets.insert(@name_table, {name, pid, ref, nil, props})
+    :ets.insert(@name_table, {name, pid, ref, nil, groups})
     # Track this name on all other nodes
-    :rpc.abcast(Node.list(:connected), __MODULE__, {:track_name, name, pid, nil, props})
+    :rpc.abcast(Node.list(:connected), __MODULE__, {:track_name, name, pid, nil, groups})
     {:reply, {:ok, pid}, state}
   end
-  def handle_call({:register_name, name, {m,f,a}=mfa, props}, _from, state) do
+  def handle_call({:register_name, name, {m,f,a}=mfa, groups}, _from, state) do
     try do
       pid = case apply(m, f, a) do
         {:ok, pid}           -> {:ok, pid}
@@ -81,9 +83,9 @@ defmodule Swarm.ETS do
         {:ok, pid} ->
           debug "registering #{inspect name}"
           ref = Process.monitor(pid)
-          :ets.insert(@name_table, {name, pid, ref, mfa, props})
+          :ets.insert(@name_table, {name, pid, ref, mfa, groups})
           # Track this name on all other nodes
-          :rpc.abcast(Node.list(:connected), __MODULE__, {:track_name, name, pid, mfa, props})
+          :rpc.abcast(Node.list(:connected), __MODULE__, {:track_name, name, pid, mfa, groups})
           {:reply, {:ok, pid}, state}
         {:error, _} = err ->
           {:reply, err, state}
@@ -107,14 +109,27 @@ defmodule Swarm.ETS do
     end
     {:reply, :ok, state}
   end
-  def handle_call({:register_property, pid, prop}, _from, state) do
+  def handle_call({:join_group, group, pid}, _from, state) do
     case :ets.match(@name_table, {:'$1', pid, :_, :_, :'$2'}) do
-      [name, props] ->
-        debug "adding #{prop} to #{inspect name} metadata"
-        new_props = [prop|props]
-        :ets.update_element(@name_table, name, [{4, new_props}])
+      [name, groups] ->
+        debug "joining #{inspect name} to group #{inspect group}"
+        new_groups = [group|groups]
+        :ets.update_element(@name_table, name, [{4, new_groups}])
         # Update other nodes
-        :rpc.abcast(Node.list(:connected), __MODULE__, {:track_property, pid, prop})
+        :rpc.abcast(Node.list(:connected), __MODULE__, {:track_group, group, pid})
+      _ ->
+        :ok
+    end
+    {:reply, :ok, state}
+  end
+  def handle_call({:leave_group, group, pid}, _from, state) do
+    case :ets.match(@name_table, {:'$1', pid, :_, :_, :'$2'}) do
+      [name, groups] ->
+        debug "parting #{inspect name} from group #{inspect group}"
+        new_groups = Enum.filter(groups, fn ^group -> false; _ -> true end)
+        :ets.update_element(@name_table, name, [{4, new_groups}])
+        # Update other nodes
+        :rpc.abcast(Node.list(:connected), __MODULE__, {:untrack_group, group, pid})
       _ ->
         :ok
     end
@@ -128,9 +143,9 @@ defmodule Swarm.ETS do
     names_t = create_or_get_table(@name_table)
     {:noreply, names_t}
   end
-  def handle_info({:track_name, name, pid, mfa, props}, state) do
+  def handle_info({:track_name, name, pid, mfa, groups}, state) do
     debug "tracking name #{inspect name}"
-    :ets.insert(@name_table, {name, pid, nil, mfa, props})
+    :ets.insert(@name_table, {name, pid, nil, mfa, groups})
     {:noreply, state}
   end
   def handle_info({:untrack_name, name}, state) do
@@ -138,11 +153,22 @@ defmodule Swarm.ETS do
     :ets.delete(@name_table, name)
     {:noreply, state}
   end
-  def handle_info({:track_property, pid, prop}, state) do
+  def handle_info({:track_group, group, pid}, state) do
     case :ets.match(@name_table, {:'$1', pid, :_, :_, :'$2'}) do
-      [name, props] ->
-        new_props = [prop|props]
-        :ets.update_element(@name_table, name, [{4, new_props}])
+      [name, groups] ->
+        new_groups = [group|groups]
+        :ets.update_element(@name_table, name, [{4, new_groups}])
+        :ok
+      _ ->
+        :ok
+    end
+    {:noreply, state}
+  end
+  def handle_info({:untrack_group, group, pid}, state) do
+    case :ets.match(@name_table, {:'$1', pid, :_, :_, :'$2'}) do
+      [name, groups] ->
+        new_groups = Enum.filter(groups, fn ^group -> false; _ -> true end)
+        :ets.update_element(@name_table, name, [{4, new_groups}])
         :ok
       _ ->
         :ok

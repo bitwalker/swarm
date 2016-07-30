@@ -7,6 +7,8 @@ defmodule Swarm.Mixfile do
      elixir: "~> 1.3",
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
+     description: "Easy clustering, with registration and distribution of worker processes.",
+     package: package,
      deps: deps()]
   end
 
@@ -18,4 +20,12 @@ defmodule Swarm.Mixfile do
   defp deps do
     []
   end
+
+  defp package do
+    [files: ["lib", "src", "priv", "mix.exs", "README.md", "LICENSE.md"],
+     maintainers: ["Paul Schoenfelder"],
+     licenses: ["MIT"],
+     links: %{ "Gitub": "https://github.com/bitwalker/swarm" }]
+  end
+
 end

@@ -111,10 +111,10 @@ defmodule Swarm.ETS do
   end
   def handle_call({:join_group, group, pid}, _from, state) do
     case :ets.match(@name_table, {:'$1', pid, :_, :_, :'$2'}) do
-      [name, groups] ->
+      [[name, groups]] ->
         debug "joining #{inspect name} to group #{inspect group}"
         new_groups = [group|groups]
-        :ets.update_element(@name_table, name, [{4, new_groups}])
+        :ets.update_element(@name_table, name, [{5, new_groups}])
         # Update other nodes
         :rpc.abcast(Node.list(:connected), __MODULE__, {:track_group, group, pid})
       _ ->
@@ -124,10 +124,10 @@ defmodule Swarm.ETS do
   end
   def handle_call({:leave_group, group, pid}, _from, state) do
     case :ets.match(@name_table, {:'$1', pid, :_, :_, :'$2'}) do
-      [name, groups] ->
+      [[name, groups]] ->
         debug "parting #{inspect name} from group #{inspect group}"
         new_groups = Enum.filter(groups, fn ^group -> false; _ -> true end)
-        :ets.update_element(@name_table, name, [{4, new_groups}])
+        :ets.update_element(@name_table, name, [{5, new_groups}])
         # Update other nodes
         :rpc.abcast(Node.list(:connected), __MODULE__, {:untrack_group, group, pid})
       _ ->
@@ -155,9 +155,10 @@ defmodule Swarm.ETS do
   end
   def handle_info({:track_group, group, pid}, state) do
     case :ets.match(@name_table, {:'$1', pid, :_, :_, :'$2'}) do
-      [name, groups] ->
+      [[name, groups]] ->
+        debug "tracking group #{inspect group} for #{inspect pid}"
         new_groups = [group|groups]
-        :ets.update_element(@name_table, name, [{4, new_groups}])
+        :ets.update_element(@name_table, name, [{5, new_groups}])
         :ok
       _ ->
         :ok
@@ -166,9 +167,10 @@ defmodule Swarm.ETS do
   end
   def handle_info({:untrack_group, group, pid}, state) do
     case :ets.match(@name_table, {:'$1', pid, :_, :_, :'$2'}) do
-      [name, groups] ->
+      [[name, groups]] ->
+        debug "untracking group #{inspect group} for #{inspect pid}"
         new_groups = Enum.filter(groups, fn ^group -> false; _ -> true end)
-        :ets.update_element(@name_table, name, [{4, new_groups}])
+        :ets.update_element(@name_table, name, [{5, new_groups}])
         :ok
       _ ->
         :ok
@@ -176,9 +178,13 @@ defmodule Swarm.ETS do
     {:noreply, state}
   end
   def handle_info({:DOWN, _monitor, _, pid, _reason}, state) do
-    case :ets.match(@name_table, {:'$1', pid, :_, :_}) do
-      [name] -> :ets.delete(@name_table, name)
-      _      -> :ok
+    case :ets.match(@name_table, {:'$1', pid, :_, :_, :_}) do
+      [[name]] ->
+        # Untrack this name on all other nodes
+        :rpc.abcast(Node.list(:connected), __MODULE__, {:untrack_name, name})
+        :ets.delete(@name_table, name)
+      _ ->
+        :ok
     end
     {:noreply, state}
   end

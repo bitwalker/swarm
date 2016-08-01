@@ -79,7 +79,7 @@ defmodule Swarm.Tracker do
   @spec whereis(term) :: pid() | :undefined
   def whereis(name) do
     case ETS.get_name(name) do
-      [{_name, pid, _ref, _mfa, _groups}] ->
+      {_name, pid, _ref, _mfa, _groups} ->
         pid
       _ ->
         this_node = Node.self

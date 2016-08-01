@@ -4,7 +4,7 @@
   start/2, stop/1,
   register_name/2, register_name/4, unregister_name/1, whereis_name/1,
   join/2, leave/2, members/1,
-  publish/2, multicall/2, multicall/3
+  publish/2, multicall/2, multicall/3, send/2
 ]).
 
 -define(TRACKER, 'Elixir.Swarm.Tracker').
@@ -79,6 +79,18 @@ multicall(Group, Message) ->
 %% @doc Same as multicall/2, but takes a timeout.
 %% Any responses not received within that period are
 %% ignored.
+%% @end
 -spec multicall(term(), term(), pos_integer()) -> [any()].
 multicall(Group, Message, Timeout) ->
     ?TRACKER:multicall(Group, Message, Timeout).
+
+%% @doc This function sends a message to the process registered to the given name.
+%% It is intended to be used by GenServer when using `GenServer.cast/2`, but you
+%% may use it to send any message to the desired process.
+%% @end
+-spec send(term(), term()) -> ok.
+ send(Name, Msg) ->
+     case whereis_name(Name) of
+         Pid when is_pid(Pid) -> erlang:send(Pid, Msg);
+         undefined -> ok
+     end.

@@ -96,4 +96,17 @@ defmodule Swarm do
   def multicall(group, msg, timeout \\ 5_000) do
     Swarm.Tracker.multicall(group, msg, timeout)
   end
+
+  @doc """
+  This function sends a message to the process registered to the given name.
+  It is intended to be used by GenServer when using `GenServer.cast/2`, but you
+  may use it to send any message to the desired process.
+  """
+  @spec send(term, term) :: :ok
+  def send(name, msg) do
+    case whereis_name(name) do
+      pid when is_pid(pid) -> Kernel.send(pid, msg)
+      :undefined -> :ok
+    end
+  end
 end

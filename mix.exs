@@ -3,7 +3,7 @@ defmodule Swarm.Mixfile do
 
   def project do
     [app: :swarm,
-     version: "0.1.0",
+     version: "0.2.0",
      elixir: "~> 1.3",
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,

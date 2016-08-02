@@ -9,6 +9,7 @@ defmodule Swarm.Mixfile do
      start_permanent: Mix.env == :prod,
      description: "Easy clustering, with registration and distribution of worker processes.",
      package: package,
+     docs: docs(),
      deps: deps()]
   end
 
@@ -28,4 +29,11 @@ defmodule Swarm.Mixfile do
      links: %{ "Gitub": "https://github.com/bitwalker/swarm" }]
   end
 
+  defp docs do
+    [main: "readme",
+     formatter_opts: [gfm: true],
+     extras: [
+       "README.md"
+     ]]
+  end
 end

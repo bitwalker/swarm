@@ -1,5 +1,7 @@
 # Swarm
 
+[![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm)
+
 Swarm is both a global distributed registry, like `gproc`, and a clustering utility.
 It was designed for the use case where large numbers of persistent processes are created
 for things like devices, and are unique across a cluster of Erlang nodes, and messages
@@ -7,6 +9,8 @@ must be routed to those processes, both individually, and in groups. Additionall
 is designed to distribute these processes evenly across the cluster based on a consistent
 hashing algorithm, and automatically move processes in response to cluster topology changes,
 or node crashes.
+
+View the docs [here](https://hexdocs.pm/swarm).
 
 ## Installation
 

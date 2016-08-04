@@ -62,7 +62,7 @@ defmodule Swarm.Cluster.Kubernetes do
     endpoints_path = "api/v1/namespaces/#{namespace}/pods?labelSelector=#{selector}"
     headers        = [{'authorization', 'Bearer #{token}'}]
     http_options   = [ssl: [verify: :verify_none]]
-    case :httpc.request(:get, {"https://#{@kubernetes_master}/#{endpoints_path}", headers}, http_options, []) do
+    case :httpc.request(:get, {'https://#{@kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do
       {:ok, {{_version, 200, _status}, _headers, body}} ->
         case Poison.decode!(body) do
           %{"items" => []} ->

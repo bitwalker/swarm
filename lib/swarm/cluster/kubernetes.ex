@@ -75,7 +75,7 @@ defmodule Swarm.Cluster.Kubernetes do
                   %{"subsets" => []}, acc ->
                     acc
                   %{"subsets" => subsets}, acc ->
-                    addrs = Enum.map(subsets, fn %{"addresses" => addresses} ->
+                    addrs = Enum.flat_map(subsets, fn %{"addresses" => addresses} ->
                       Enum.map(addresses, fn %{"ip" => ip} -> :"#{app_name}@#{ip}" end)
                     end)
                     acc ++ addrs

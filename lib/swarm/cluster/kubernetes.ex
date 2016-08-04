@@ -62,7 +62,7 @@ defmodule Swarm.Cluster.Kubernetes do
     cond do
       app_name != nil and selector != nil ->
         selector = URI.encode(selector)
-        endpoints_path = "api/v1/namespaces/#{namespace}/pods?labelSelector=#{selector}"
+        endpoints_path = "api/v1/namespaces/#{namespace}/pods?fieldSelector=status&labelSelector=#{selector}"
         headers        = [{'authorization', 'Bearer #{token}'}]
         http_options   = [ssl: [verify: :verify_none]]
         case :httpc.request(:get, {'https://#{@kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do

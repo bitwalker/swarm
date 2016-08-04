@@ -14,6 +14,18 @@ defmodule Swarm.Logger do
     end
   end
 
+  @doc """
+  Log a warning message
+  """
+  @spec warn(String.t) :: :ok
+  def warn(message),  do: Logger.warn("(swarm) #{message}")
+
+  @doc """
+  Log a error message
+  """
+  @spec error(String.t) :: :ok
+  def error(message), do: Logger.error("(swarm) #{message}")
+
   defp log?, do: Application.get_env(:swarm, :debug, false)
 
 end

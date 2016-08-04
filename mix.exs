@@ -14,12 +14,13 @@ defmodule Swarm.Mixfile do
   end
 
   def application do
-    [applications: [:logger],
+    [applications: [:logger, :ssl, :inets, :httpc],
      mod: {Swarm, []}]
   end
 
   defp deps do
-    [{:ex_doc, "~> 0.13", only: :dev}]
+    [{:ex_doc, "~> 0.13", only: :dev},
+     {:poison, "~> 2.2"}]
   end
 
   defp package do

@@ -7,18 +7,17 @@ defmodule Swarm.Supervisor do
   end
 
   def init(_) do
-
-    autocluster? = Application.get_env(:swarm, :autocluster, true)
-    children = cond do
-      autocluster? ->
-        [worker(Swarm.ETS, []),
-         worker(Swarm.Tracker, []),
-         worker(Swarm.Cluster.Gossip, [])]
-      :else ->
-        [worker(Swarm.ETS, []),
-         worker(Swarm.Tracker, []),
-         worker(Swarm.Cluster.Epmd, [])]
+    cluster_strategy = case Application.get_env(:swarm, :autocluster, true) do
+      :kubernetes -> Swarm.Cluster.Kubernetes
+      true        -> Swarm.Cluster.Gossip
+      _           -> Swarm.Cluster.Epmd
     end
+
+    children = [
+      worker(Swarm.ETS, []),
+      worker(Swarm.Tracker, []),
+      worker(cluster_strategy, [])
+    ]
     supervise(children, strategy: :one_for_one)
   end
 end

@@ -10,6 +10,8 @@ defmodule Swarm.Supervisor do
     cluster_strategy = case Application.get_env(:swarm, :autocluster, true) do
       :kubernetes -> Swarm.Cluster.Kubernetes
       true        -> Swarm.Cluster.Gossip
+      false       -> Swarm.Cluster.Epmd
+      mod when is_atom(mod) -> mod
       _           -> Swarm.Cluster.Epmd
     end
 

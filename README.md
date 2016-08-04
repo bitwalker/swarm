@@ -67,7 +67,9 @@ to start a process on that node will be serialized through that node to prevent 
 You have three choices with regards to cluster management. You can use the built-in Erlang tooling for connecting
 nodes, by setting `autocluster: false` in the config for `swarm`. If set to `autocluster: true` it will make use of Swarm's 
 dynamic cluster formation via multicast UDP. If set to `autocluster: :kubernetes`, it will use the Kubernetes API, and
-the token/namespace injected into the pod to form a cluster of nodes based on a pod selector.
+the token/namespace injected into the pod to form a cluster of nodes based on a pod selector. You can provide your own
+autoclustering implementation by setting `autocluster: MyApp.Module` where `MyApp.Module` is an OTP process
+(i.e. `GenServer`, something started with `:proc_lib`, etc.). The implementation must connect nodes with `:net_adm.connect_node/1`.
 
 The gossip protocol works by multicasting a heartbeat via UDP. The default configuration listens on all host interfaces,
 port 45892, and publishes via the multicast address `230.0.0.251`. These parameters can all be changed via the

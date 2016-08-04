@@ -3,10 +3,11 @@ defmodule Swarm.Cluster.Kubernetes do
   This clustering strategy works by loading all pods in the current Kubernetes
   namespace with the configured tag. It will fetch the addresses of all pods with
   that tag and attempt to connect. It will continually monitor and update it's
-  connections every 1s.
+  connections every 5s.
 
   It assumes that all nodes share a base name, are using longnames, and are unique
-  based on their FQDN, rather than the base hostname.
+  based on their FQDN, rather than the base hostname. In other words, in the following
+  longname, `<basename>@<domain>`, `basename` would be the value configured in
   """
   use GenServer
   import Swarm.Logger
@@ -57,35 +58,47 @@ defmodule Swarm.Cluster.Kubernetes do
     token     = get_token()
     namespace = get_namespace()
     app_name = Application.get_env(:swarm, :kubernetes_node_basename)
-    selector = Application.get_env(:swarm, :kubernetes_selector, "")
-    selector = URI.encode(selector)
-    endpoints_path = "api/v1/namespaces/#{namespace}/pods?labelSelector=#{selector}"
-    headers        = [{'authorization', 'Bearer #{token}'}]
-    http_options   = [ssl: [verify: :verify_none]]
-    case :httpc.request(:get, {'https://#{@kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do
-      {:ok, {{_version, 200, _status}, _headers, body}} ->
-        case Poison.decode!(body) do
-          %{"items" => []} ->
+    selector = Application.get_env(:swarm, :kubernetes_selector)
+    cond do
+      app_name != nil and selector != nil ->
+        selector = URI.encode(selector)
+        endpoints_path = "api/v1/namespaces/#{namespace}/pods?labelSelector=#{selector}"
+        headers        = [{'authorization', 'Bearer #{token}'}]
+        http_options   = [ssl: [verify: :verify_none]]
+        case :httpc.request(:get, {'https://#{@kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do
+          {:ok, {{_version, 200, _status}, _headers, body}} ->
+            case Poison.decode!(body) do
+              %{"items" => []} ->
+                []
+              %{"items" => items} ->
+                Enum.reduce(items, [], fn
+                  %{"status" => %{"phase" => "Running", "podIP" => pod_addr}}, acc ->
+                    [:"#{app_name}@#{pod_addr}"|acc]
+                  _, acc ->
+                    acc
+                end)
+              _ ->
+                []
+            end
+          {:ok, {{_version, 403, _status}, _headers, body}} ->
+            resp = Poison.decode!(body)
+            warn "cannot query kubernetes (unauthorized): #{resp.message}"
             []
-          %{"items" => items} ->
-            Enum.reduce(items, [], fn
-              %{"status" => %{"phase" => "Running", "podIP" => pod_addr}}, acc ->
-                [:"#{app_name}@#{pod_addr}"|acc]
-              _, acc ->
-                acc
-            end)
-          _ ->
+          {:ok, {{_version, code, status}, _headers, body}} ->
+            warn "cannot query kubernetes (#{code} #{status}): #{inspect body}"
+            []
+          {:error, reason} ->
+            error "request to kubernetes failed!: #{inspect reason}"
             []
         end
-      {:ok, {{_version, 403, _status}, _headers, body}} ->
-        resp = Poison.decode!(body)
-        warn "cannot query kubernetes (unauthorized): #{resp.message}"
+      app_name == nil ->
+        warn "kubernetes strategy is selected, but :kubernetes_node_basename is not configured!"
         []
-      {:ok, {{_version, code, status}, _headers, body}} ->
-        warn "cannot query kubernetes (#{code} #{status}): #{inspect body}"
+      selector == nil ->
+        warn "kubernetes strategy is selected, but :kubernetes_selector is not configured!"
         []
-      {:error, reason} ->
-        error "request to kubernetes failed!: #{inspect reason}"
+      :else ->
+        warn "kubernetes strategy is selected, but is not configured!"
         []
     end
   end

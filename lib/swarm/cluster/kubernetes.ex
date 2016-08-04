@@ -62,7 +62,7 @@ defmodule Swarm.Cluster.Kubernetes do
     cond do
       app_name != nil and selector != nil ->
         selector = URI.encode(selector)
-        endpoints_path = "api/v1/namespaces/#{namespace}/pods?fieldSelector=status&labelSelector=#{selector}"
+        endpoints_path = "api/v1/namespaces/#{namespace}/endpoints?labelSelector=#{selector}"
         headers        = [{'authorization', 'Bearer #{token}'}]
         http_options   = [ssl: [verify: :verify_none]]
         case :httpc.request(:get, {'https://#{@kubernetes_master}/#{endpoints_path}', headers}, http_options, []) do
@@ -72,8 +72,13 @@ defmodule Swarm.Cluster.Kubernetes do
                 []
               %{"items" => items} ->
                 Enum.reduce(items, [], fn
-                  %{"status" => %{"phase" => "Running", "podIP" => pod_addr}}, acc ->
-                    [:"#{app_name}@#{pod_addr}"|acc]
+                  %{"subsets" => []}, acc ->
+                    acc
+                  %{"subsets" => subsets}, acc ->
+                    addrs = Enum.map(subsets, fn %{"addresses" => addresses} ->
+                      Enum.map(addresses, fn %{"ip" => ip} -> :"#{app_name}@#{ip}" end)
+                    end)
+                    acc ++ addrs
                   _, acc ->
                     acc
                 end)

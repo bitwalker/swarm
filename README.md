@@ -87,10 +87,11 @@ config :swarm,
   multicast_ttl: 1
 ```
 
-The Kubernetes strategy works by querying the Kubernetes API for all pods in the same namespace which match the provided
-selector. Once all of the matching pod IPs have been found, it will attempt to establish node connections using the format
-`<kubernetes_node_basename>@<pod ip>`. You must make sure that your nodes are configured to use longnames, that the hostname
-matches the `kubernetes_node_basename` setting, and that the domain matches the pod IP address. Configuration might look like so:
+The Kubernetes strategy works by querying the Kubernetes API for all endpoints in the same namespace which match the provided
+selector, and getting the container IPs associated with them. Once all of the matching IPs have been found, it will attempt to 
+establish node connections using the format `<kubernetes_node_basename>@<endpoint ip>`. You must make sure that your nodes are 
+configured to use longnames, that the hostname matches the `kubernetes_node_basename` setting, and that the domain matches the 
+IP address. Configuration might look like so:
 
 ```elixir
 config :swarm,

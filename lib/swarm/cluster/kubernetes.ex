@@ -81,8 +81,8 @@ defmodule Swarm.Cluster.Kubernetes do
                 []
             end
           {:ok, {{_version, 403, _status}, _headers, body}} ->
-            resp = Poison.decode!(body)
-            warn "cannot query kubernetes (unauthorized): #{resp.message}"
+            %{"message" => msg} = Poison.decode!(body)
+            warn "cannot query kubernetes (unauthorized): #{msg}"
             []
           {:ok, {{_version, code, status}, _headers, body}} ->
             warn "cannot query kubernetes (#{code} #{status}): #{inspect body}"

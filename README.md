@@ -22,8 +22,10 @@ end
 
 ## Features
 
-- automatic cluster formation/healing based on gossip
-  via UDP, using a configurable port/multicast address
+- automatic cluster formation/healing based on a gossip protocol
+  via UDP, using a configurable port/multicast address, or alternatively
+  if running under Kubernetes, via a configurable pod selector and node
+  basename.
 - automatic distribution of registered processes across
   the cluster based on a consistent hashing algorithm,
   where names are partitioned across nodes based on their hash.
@@ -62,16 +64,18 @@ to start a process on that node will be serialized through that node to prevent 
 
 ## Clustering
 
-You have two choices with regards to cluster management. You can use the built-in Erlang tooling for connecting
-nodes, by setting `autocluster: false` in the config for `swarm`. Alternatively, you can set `autocluster: true`
-to make use of Swarm's dynamic cluster formation and auto-healing.
+You have three choices with regards to cluster management. You can use the built-in Erlang tooling for connecting
+nodes, by setting `autocluster: false` in the config for `swarm`. If set to `autocluster: true` it will make use of Swarm's 
+dynamic cluster formation via multicast UDP. If set to `autocluster: :kubernetes`, it will use the Kubernetes API, and
+the token/namespace injected into the pod to form a cluster of nodes based on a pod selector.
 
-The latter works by multicasting a heartbeat via UDP. The default configuration listens on all host interfaces,
+The gossip protocol works by multicasting a heartbeat via UDP. The default configuration listens on all host interfaces,
 port 45892, and publishes via the multicast address `230.0.0.251`. These parameters can all be changed via the
 following config settings:
 
 ```elixir
 config :swarm,
+  autocluster: true,
   port: 45892,
   if_addr: {0,0,0,0},
   multicast_addr: {230,0,0,251},
@@ -81,7 +85,26 @@ config :swarm,
   multicast_ttl: 1
 ```
 
-In both configurations, Swarm will respond to nodeup/nodedown events by shifting registered processes
+The Kubernetes strategy works by querying the Kubernetes API for all pods in the same namespace which match the provided
+selector. Once all of the matching pod IPs have been found, it will attempt to establish node connections using the format
+`<kubernetes_node_basename>@<pod ip>`. You must make sure that your nodes are configured to use longnames, that the hostname
+matches the `kubernetes_node_basename` setting, and that the domain matches the pod IP address. Configuration might look like so:
+
+```elixir
+config :swarm,
+  autocluster: :kubernetes,
+  kubernetes_selector: "app=myapp",
+  kubernetes_node_basename: "myapp"
+```
+
+And in vm.args:
+
+```
+-name myapp@10.128.0.9
+-setcookie test
+```
+
+In all configurations, Swarm will respond to nodeup/nodedown events by shifting registered processes
 around the cluster based on the hash of their name.
 
 ## Registration/Process Grouping

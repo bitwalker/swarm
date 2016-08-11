@@ -191,7 +191,9 @@ defmodule Swarm.Tracker do
   def handle_info({:nodedown, node, _info}, state) do
     debug "nodedown: #{inspect node}"
     Task.async(fn ->
-      redistribute(Enum.sort(all_nodes()))
+      nodes = Enum.sort(all_nodes())
+      redistribute(nodes)
+      synchronize(nodes)
     end)
     {:noreply, state}
   end

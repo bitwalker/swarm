@@ -90,10 +90,9 @@ defmodule Swarm.ETS do
         {:error, _} = err ->
           {:reply, err, state}
       end
-    rescue
-      e ->
-        reason = Exception.message(e)
-        {:reply, {:error, reason}, state}
+    catch
+      type, reason ->
+        {:reply, {:error, {type, reason}}, state}
     end
   end
   def handle_call({:unregister_name, name}, _from, state) do

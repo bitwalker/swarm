@@ -179,6 +179,9 @@ defmodule Swarm.Tracker do
   def handle_info({:nodeup, node, _info}, state) do
     debug "nodeup: #{inspect node}"
     Task.async(fn ->
+      # Give the new node 5s to boot up
+      debug "waiting 5s to redistribute"
+      :timer.sleep(5_000)
       nodes = Enum.sort(all_nodes())
       redistribute(nodes)
       synchronize(nodes)

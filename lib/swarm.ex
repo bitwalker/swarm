@@ -9,6 +9,15 @@ defmodule Swarm do
   end
 
   @doc """
+  Explicitly join this node to the cluster.
+  If `autojoin: true` is set in the config, this call does nothing.
+  """
+  @spec join!() :: :ok | no_return
+  def join! do
+    Swarm.Tracker.join!
+  end
+
+  @doc """
   Registers the given name to the given pid, however names
   registered this way will not be shifted when the cluster
   topology changes, but this allows you to use `:swarm` as

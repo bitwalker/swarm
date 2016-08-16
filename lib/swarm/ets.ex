@@ -13,6 +13,29 @@ defmodule Swarm.ETS do
   @type named :: {term, pid(), reference(), mfa, groups}
 
   @name_table :swarm_names # {name, pid, monitor_ref, mfa, groups}
+  @node_table :swarm_nodes # {name, metadata :: Keyword.t}
+
+  @spec nodeup(node()) :: :ok
+  def nodeup(node) do
+    case :ets.lookup(@node_table, node) do
+      [_] -> :ok
+      _   ->
+        true = :ets.insert(@node_table, {node, node})
+        :ok
+    end
+  end
+
+  @spec nodedown(node()) :: :ok
+  def nodedown(node) do
+    true = :ets.delete(@node_table, node)
+    :ok
+  end
+
+  @spec nodelist() :: [{node(), :connected | :pending}]
+  def nodelist do
+    :ets.tab2list(@node_table)
+    |> Enum.map(fn {n, _} -> n end)
+  end
 
   @spec get_name(term) :: named :: nil
   def get_name(name) do
@@ -140,7 +163,8 @@ defmodule Swarm.ETS do
 
   def handle_info(:timeout, _state) do
     names_t = create_or_get_table(@name_table)
-    {:noreply, names_t}
+    nodes_t = create_or_get_table(@node_table)
+    {:noreply, %{names: names_t, nodes: nodes_t}}
   end
   def handle_info({:track_name, name, pid, mfa, groups}, state) do
     debug "tracking name #{inspect name}"

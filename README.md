@@ -110,6 +110,16 @@ And in vm.args:
 In all configurations, Swarm will respond to nodeup/nodedown events by shifting registered processes
 around the cluster based on the hash of their name.
 
+## Autojoin
+
+Swarm will automatically join the cluster, however in some situations this can result in undesirable behaviour,
+namely, since Swarm starts before your application is started, if your application takes longer than it takes Swarm
+to start redistributing processes to the new node, and those processes need to be attached to a supervisor which is not
+yet running, an error will occur.
+
+To handle this, you can set `autojoin: false` in the config. You must then explicitly join the cluster with `Swarm.join!/0`.
+Until you do this, Swarm will still connect nodes, but will treat the new node as if it didn't exist until `join!` is called.
+
 ## Registration/Process Grouping
 
 Swarm is intended to be used by registering processes *before* they are created, and letting Swarm start

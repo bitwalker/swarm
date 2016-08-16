@@ -15,6 +15,10 @@ defmodule Swarm.Tracker do
   @name_table :swarm_names # {name, pid, monitor_ref, mfa, groups}
 
   @doc false
+  @spec join!() :: :ok | no_return
+  def join!, do: GenServer.cast(__MODULE__, :join)
+
+  @doc false
   @spec register(term, mfa | pid) :: {:ok, pid} | {:error, term}
   def register(name, {m,f,a})
     when is_atom(m) and is_atom(f) and is_list(a) do
@@ -98,7 +102,8 @@ defmodule Swarm.Tracker do
 
   def init(_) do
     :net_kernel.monitor_nodes(true, [:nodedown_reason])
-    {:ok, nil}
+    ETS.nodeup(Node.self)
+    {:ok, %{joined: Application.get_env(:swarm, :autojoin, true), pending_nodes: []}}
   end
 
   def handle_call({:register, name, mfa}, from, state) do
@@ -164,6 +169,14 @@ defmodule Swarm.Tracker do
   end
   def handle_call(_, _from, state), do: {:noreply, state}
 
+  def handle_cast(:join, %{joined: false, pending_nodes: new_nodes} = state) do
+    Enum.map(new_nodes, &ETS.nodeup/1)
+    Task.async(&handle_topology_change/0)
+    {:noreply, %{state | :joined => true, :pending_nodes => []}}
+  end
+  def handle_cast(:join, state) do
+    {:noreply, state}
+  end
   def handle_cast({:join_group, group, pid}, state) do
     ETS.join_group(group, pid)
     {:noreply, state}
@@ -176,33 +189,47 @@ defmodule Swarm.Tracker do
     {:noreply, state}
   end
 
-  def handle_info({:nodeup, node, _info}, state) do
+  def handle_info({:nodeup, node, _info}, %{joined: joined?, pending_nodes: pending} = state) do
     debug "nodeup: #{inspect node}"
-    Task.async(fn ->
-      # Give the new node 5s to boot up
-      debug "waiting 5s to redistribute"
-      :timer.sleep(5_000)
-      nodes = Enum.sort(all_nodes())
-      redistribute(nodes)
-      synchronize(nodes)
-    end)
-    {:noreply, state}
+    cond do
+      Enum.member?(pending, node) ->
+        {:noreply, state}
+      Enum.member?(ETS.nodelist, node) ->
+        {:noreply, state}
+      joined? ->
+        ETS.nodeup(node)
+        Task.async(&handle_topology_change/0)
+        {:noreply, state}
+      :else ->
+        {:noreply, %{state | :pending_nodes => [node|pending]}}
+    end
   end
-  def handle_info({:nodedown, node, _info}, state) do
+  def handle_info({:nodedown, node, _info}, %{pending_nodes: pending} = state) do
     debug "nodedown: #{inspect node}"
-    Task.async(fn ->
-      nodes = Enum.sort(all_nodes())
-      redistribute(nodes)
-      synchronize(nodes)
-    end)
-    {:noreply, state}
+    cond do
+      Enum.member?(pending, node) ->
+        pending = pending -- [node]
+        {:noreply, %{state | :pending_nodes => pending}}
+      Enum.member?(ETS.nodelist, node) ->
+        ETS.nodedown(node)
+        Task.async(&handle_topology_change/0)
+        {:noreply, state}
+      :else ->
+        {:noreply, state}
+    end
   end
   def handle_info(_, state) do
     {:noreply, state}
   end
 
+  defp handle_topology_change() do
+    nodes = Enum.sort(ETS.nodelist)
+    redistribute(nodes)
+    synchronize(nodes)
+  end
+
   defp node_for_name(name) do
-    node_for_name(Enum.sort(all_nodes()), name)
+    node_for_name(Enum.sort(ETS.nodelist), name)
   end
   defp node_for_name(nodes, name) do
     node_for_hash(nodes, :erlang.phash2(name))
@@ -317,6 +344,4 @@ defmodule Swarm.Tracker do
       end
     :ok
   end
-
-  defp all_nodes(), do: [Node.self|Node.list(:connected)]
 end

@@ -72,7 +72,7 @@ autoclustering implementation by setting `autocluster: MyApp.Module` where `MyAp
 (i.e. `GenServer`, something started with `:proc_lib`, etc.). The implementation must connect nodes with `:net_adm.connect_node/1`.
 
 The gossip protocol works by multicasting a heartbeat via UDP. The default configuration listens on all host interfaces,
-port 45892, and publishes via the multicast address `230.0.0.251`. These parameters can all be changed via the
+port 45892, and publishes via the multicast address `230.1.1.251`. These parameters can all be changed via the
 following config settings:
 
 ```elixir
@@ -80,7 +80,7 @@ config :swarm,
   autocluster: true,
   port: 45892,
   if_addr: {0,0,0,0},
-  multicast_addr: {230,0,0,251},
+  multicast_addr: {230,1,1,251},
   # a TTL of 1 remains on the local network,
   # use this to change the number of jumps the
   # multicast packets will make

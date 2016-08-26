@@ -10,7 +10,7 @@ defmodule Swarm.Cluster.Gossip do
   name which sent the packet. The node name is paresed from the packet, and a
   connection attempt is made. It will fail if the two nodes do not share a cookie.
 
-  By default, the gossip occurs on port 45892, using the multicast address 230.0.0.251
+  By default, the gossip occurs on port 45892, using the multicast address 230.1.1.251
 
   You may configure the multicast address, the interface address to bind to, the port,
   and the TTL of the packets, using the following settings:
@@ -18,7 +18,7 @@ defmodule Swarm.Cluster.Gossip do
       config :swarm,
         port: 45892,
         if_addr: "0.0.0.0",
-        multicast_addr: "230.0.0.251",
+        multicast_addr: "230.1.1.251",
         multicast_ttl: 1
 
   A TTL of 1 will limit packets to the local network, and is the default TTL.
@@ -28,7 +28,7 @@ defmodule Swarm.Cluster.Gossip do
 
   @default_port 45892
   @default_addr {0,0,0,0}
-  @default_multicast_addr {230,0,0,251}
+  @default_multicast_addr {230,1,1,251}
 
   def start_link() do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)

@@ -16,7 +16,7 @@ View the docs [here](https://hexdocs.pm/swarm).
 
 ```elixir
 defp deps do
-  [{:swarm, "~> 0.2"}]
+  [{:swarm, "~> 0.4.4"}]
 end
 ```
 
@@ -142,7 +142,7 @@ be discoverable by name from anywhere in the cluster. Swarm is a perfect fit for
 situation.
 
 ```elixir
-defmodule MyApp.WorkerSup do
+defmodule MyApp.Supervisor do
   @moduledoc """
   This is the supervisor for the worker processes you wish to distribute
   across the cluster, Swarm is primarily designed around the use case
@@ -185,7 +185,7 @@ defmodule MyApp.Worker do
   #   - `{:resume, state}`, to hand off some state to the new process
   #   - `:ignore`, to leave the process running on it's current node
   #
-  def handle_call({:swarm, :begin_handoff}, {name, delay}) do
+  def handle_call({:swarm, :begin_handoff}, _from, {name, delay}) do
     {:reply, {:resume, delay}, {name, delay}}
   end
   # called after the process has been restarted on it's new node,
@@ -194,7 +194,7 @@ defmodule MyApp.Worker do
   # **NOTE**: This is called *after* the process is successfully started,
   # so make sure to design your processes around this caveat if you
   # wish to hand off state like this.
-  def handle_call({:swarm, :end_handoff, delay}, {name, _}) do
+  def handle_call({:swarm, :end_handoff, delay}, _from, {name, _}) do
     {:reply, :ok, {name, delay}}
   end
   def handle_call(_, _, state), do: {:noreply, state}

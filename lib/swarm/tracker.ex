@@ -185,10 +185,6 @@ defmodule Swarm.Tracker do
     ETS.leave_group(group, pid)
     {:noreply, state}
   end
-  def handle_cast({:kill, pid}, state) do
-    Process.exit(pid, {:swarm, :die})
-    {:noreply, state}
-  end
   def handle_cast(_, state) do
     {:noreply, state}
   end
@@ -306,53 +302,38 @@ defmodule Swarm.Tracker do
               debug "nothing to do for #{inspect name}, already home on #{inspect dest_node}"
               :ok
             Node.ping(node(pid)) == :pong ->
-              behaviours = Keyword.get(m.__info__(:attributes), :behaviour, [])
-              is_gen_server? = Enum.any?(behaviours, fn b when b in [:gen_server, GenServer] -> true; _ -> false end)
-              case is_gen_server? do
-                false ->
-                  debug "no handoff possible, restarting #{inspect name}"
-                  send(pid, {:swarm, :die})
-                  kill_pid(pid)
+              try do
+                case GenServer.call(pid, {:swarm, :begin_handoff}) do
+                  :restart ->
+                    debug "handoff requested restart of #{inspect name}"
+                    send(pid, {:swarm, :die})
+                    ETS.unregister_name(name)
+                    GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
+                  {:resume, state} ->
+                    debug "handoff requested resume of #{inspect name}"
+                    send(pid, {:swarm, :die})
+                    ETS.unregister_name(name)
+                    GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, groups, state})
+                  :ignore ->
+                    debug "handoff ignored for #{inspect name}"
+                    nil
+                  _ ->
+                    # bad return value, so we're going to restart
+                    debug "handoff return value was bad, restarting #{inspect name}"
+                    send(pid, {:swarm, :die})
+                    ETS.unregister_name(name)
+                    GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
+                end
+              catch
+                _exit, {:noproc, _} ->
+                  debug "cannot handoff response (:noproc), restarting #{inspect name}"
                   ETS.unregister_name(name)
                   GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
-                true ->
-                  try do
-                    case GenServer.call(pid, {:swarm, :begin_handoff}) do
-                      :restart ->
-                        debug "handoff requested restart of #{inspect name}"
-                        send(pid, {:swarm, :die})
-                        kill_pid(pid)
-                        ETS.unregister_name(name)
-                        GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
-                      {:resume, state} ->
-                        debug "handoff requested resume of #{inspect name}"
-                        send(pid, {:swarm, :die})
-                        kill_pid(pid)
-                        ETS.unregister_name(name)
-                        GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, groups, state})
-                      :ignore ->
-                        debug "handoff ignored for #{inspect name}"
-                        nil
-                      _ ->
-                        # bad return value, so we're going to restart
-                        debug "handoff return value was bad, restarting #{inspect name}"
-                        send(pid, {:swarm, :die})
-                        kill_pid(pid)
-                        ETS.unregister_name(name)
-                        GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
-                    end
-                  catch
-                    _exit, {:noproc, _} ->
-                      debug "cannot handoff response (:noproc), restarting #{inspect name}"
-                      ETS.unregister_name(name)
-                      GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
-                    _exit, {:timeout, _} ->
-                      debug "cannot handoff response (:timeout), restarting #{inspect name}"
-                      send(pid, {:swarm, :die})
-                      kill_pid(pid)
-                      ETS.unregister_name(name)
-                      GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
-                  end
+                _exit, {:timeout, _} ->
+                  debug "cannot handoff response (:timeout), restarting #{inspect name}"
+                  send(pid, {:swarm, :die})
+                  ETS.unregister_name(name)
+                  GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
               end
             :else ->
               debug "cannot handoff, restarting #{inspect name}"
@@ -362,10 +343,5 @@ defmodule Swarm.Tracker do
         end
       end
     :ok
-  end
-
-  defp kill_pid(pid) when is_pid(pid) do
-    n = node(pid)
-    GenServer.cast({__MODULE__, n}, {:kill, pid})
   end
 end

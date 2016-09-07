@@ -1,4 +1,4 @@
-defmodule Swarm.ETS do
+defmodule Swarm.Registry do
   @moduledoc """
   This process is the backing store for the registry. It should
   not be accessed directly, except by the Tracker process.
@@ -38,17 +38,10 @@ defmodule Swarm.ETS do
   end
 
   @spec get_name(term) :: named :: nil
-  def get_name(name) do
-    case :ets.lookup(@name_table, name) do
-      [found] -> found
-      _       -> nil
-    end
-  end
+  def get_name(name), do: GenServer.call(__MODULE__, {:get_name, name}, :infinity)
 
   @spec get_names() :: [named]
-  def get_names() do
-    :ets.tab2list(@name_table)
-  end
+  def get_names(), do: :ets.tab2list(@name_table)
 
   @spec get_names(node()) :: [named]
   def get_names(node) do
@@ -67,16 +60,16 @@ defmodule Swarm.ETS do
 
   @spec register_name(term, mfa | pid, groups) :: :ok | {:error, term}
   def register_name(name, mfa, groups \\ []) do
-    GenServer.call(__MODULE__, {:register_name, name, mfa, groups})
+    GenServer.call(__MODULE__, {:register_name, name, mfa, groups}, :infinity)
   end
 
   @spec unregister_name(term) :: :ok
-  def unregister_name(name), do: GenServer.call(__MODULE__, {:unregister_name, name})
+  def unregister_name(name), do: GenServer.call(__MODULE__, {:unregister_name, name}, :infinity)
 
   @spec join_group(term, pid()) :: :ok
-  def join_group(group, pid), do: GenServer.call(__MODULE__, {:join_group, group, pid})
+  def join_group(group, pid), do: GenServer.call(__MODULE__, {:join_group, group, pid}, :infinity)
   @spec leave_group(term, pid()) :: :ok
-  def leave_group(group, pid), do: GenServer.call(__MODULE__, {:leave_group, group, pid})
+  def leave_group(group, pid), do: GenServer.call(__MODULE__, {:leave_group, group, pid}, :infinity)
 
   ## GenServer API
 
@@ -86,6 +79,13 @@ defmodule Swarm.ETS do
     {:ok, nil, 0}
   end
 
+  def handle_call({:get_name, name}, _from, state) do
+    reply = case :ets.lookup(@name_table, name) do
+              [found] -> found
+              _       -> nil
+            end
+    {:reply, reply, state}
+  end
   def handle_call({:register_name, name, pid, groups}, _from, state) when is_pid(pid) do
     debug "registering #{inspect name}"
     ref = Process.monitor(pid)

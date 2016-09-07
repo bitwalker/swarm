@@ -8,7 +8,7 @@ defmodule Swarm.Tracker do
   This API should be considered internal-use only.
   """
   use GenServer
-  alias Swarm.ETS
+  alias Swarm.Registry
   import Swarm.Logger
 
   @max_hash   134_217_728 # :math.pow(2,27)
@@ -49,7 +49,7 @@ defmodule Swarm.Tracker do
   @doc false
   @spec group_members(term) :: [pid()]
   def group_members(group) do
-    ETS.get_names()
+    Registry.get_names()
     |> Enum.filter_map(fn {_n,_pid,_ref,_mfa,groups} -> group in groups end,
                        fn {_n, pid,_ref,_mfa,_groups} -> pid end)
   end
@@ -82,7 +82,7 @@ defmodule Swarm.Tracker do
   @doc false
   @spec whereis(term) :: pid() | :undefined
   def whereis(name) do
-    case ETS.get_name(name) do
+    case Registry.get_name(name) do
       {_name, pid, _ref, _mfa, _groups} ->
         pid
       _ ->
@@ -102,7 +102,7 @@ defmodule Swarm.Tracker do
 
   def init(_) do
     :net_kernel.monitor_nodes(true, [:nodedown_reason])
-    ETS.nodeup(Node.self)
+    Registry.nodeup(Node.self)
     {:ok, %{joined: Application.get_env(:swarm, :autojoin, true), pending_nodes: []}}
   end
 
@@ -118,7 +118,7 @@ defmodule Swarm.Tracker do
         this_node = Node.self
         case node_for_name(name) do
           ^this_node ->
-            res = ETS.register_name(name, mfa, groups)
+            res = Registry.register_name(name, mfa, groups)
             {:reply, res, state}
           node ->
             res = GenServer.call({__MODULE__, node}, {:register, name, mfa, groups}, 5_000)
@@ -132,7 +132,7 @@ defmodule Swarm.Tracker do
         this_node = Node.self
         case node_for_name(name) do
           ^this_node ->
-            ETS.unregister_name(name)
+            Registry.unregister_name(name)
           node ->
             GenServer.call({__MODULE__, node}, {:unregister, name}, 5_000)
         end
@@ -142,7 +142,7 @@ defmodule Swarm.Tracker do
     {:reply, :ok, state}
   end
   def handle_call({:handoff, name, mfa, groups}, _from, state) do
-    case ETS.register_name(name, mfa, groups) do
+    case Registry.register_name(name, mfa, groups) do
       {:ok, pid} ->
         {:reply, {:ok, pid}, state}
       err ->
@@ -150,7 +150,7 @@ defmodule Swarm.Tracker do
     end
   end
   def handle_call({:handoff, name, mfa, groups, handoff_state}, _from, state) do
-    case ETS.register_name(name, mfa, groups) do
+    case Registry.register_name(name, mfa, groups) do
       {:ok, pid} ->
         case mfa do
           nil ->
@@ -164,14 +164,14 @@ defmodule Swarm.Tracker do
     end
   end
   def handle_call({:sync, from_node, names}, _from, state) do
-    local_names = ETS.get_local_names()
+    local_names = Registry.get_local_names()
     synchronize_from_node(from_node, names)
     {:reply, local_names, state}
   end
   def handle_call(_, _from, state), do: {:noreply, state}
 
   def handle_cast(:join, %{joined: false, pending_nodes: new_nodes} = state) do
-    Enum.map(new_nodes, &ETS.nodeup/1)
+    Enum.map(new_nodes, &Registry.nodeup/1)
     Task.async(&handle_topology_change/0)
     {:noreply, %{state | :joined => true, :pending_nodes => []}}
   end
@@ -179,11 +179,11 @@ defmodule Swarm.Tracker do
     {:noreply, state}
   end
   def handle_cast({:join_group, group, pid}, state) do
-    ETS.join_group(group, pid)
+    Registry.join_group(group, pid)
     {:noreply, state}
   end
   def handle_cast({:leave_group, group, pid}, state) do
-    ETS.leave_group(group, pid)
+    Registry.leave_group(group, pid)
     {:noreply, state}
   end
   def handle_cast(_, state) do
@@ -195,10 +195,10 @@ defmodule Swarm.Tracker do
     cond do
       Enum.member?(pending, node) ->
         {:noreply, state}
-      Enum.member?(ETS.nodelist, node) ->
+      Enum.member?(Registry.nodelist, node) ->
         {:noreply, state}
       joined? ->
-        ETS.nodeup(node)
+        Registry.nodeup(node)
         Task.async(&handle_topology_change/0)
         {:noreply, state}
       :else ->
@@ -211,8 +211,8 @@ defmodule Swarm.Tracker do
       Enum.member?(pending, node) ->
         pending = pending -- [node]
         {:noreply, %{state | :pending_nodes => pending}}
-      Enum.member?(ETS.nodelist, node) ->
-        ETS.nodedown(node)
+      Enum.member?(Registry.nodelist, node) ->
+        Registry.nodedown(node)
         Task.async(&handle_topology_change/0)
         {:noreply, state}
       :else ->
@@ -224,13 +224,13 @@ defmodule Swarm.Tracker do
   end
 
   defp handle_topology_change() do
-    nodes = Enum.sort(ETS.nodelist)
+    nodes = Enum.sort(Registry.nodelist)
     redistribute(nodes)
     synchronize(nodes)
   end
 
   defp node_for_name(name) do
-    node_for_name(Enum.sort(ETS.nodelist), name)
+    node_for_name(Enum.sort(Registry.nodelist), name)
   end
   defp node_for_name(nodes, name) do
     node_for_hash(nodes, :erlang.phash2(name))
@@ -243,7 +243,7 @@ defmodule Swarm.Tracker do
 
   defp synchronize(nodes) do
     debug "synchronizing with #{inspect nodes}"
-    local_names = ETS.get_local_names()
+    local_names = Registry.get_local_names()
     {replies, _badnodes} = GenServer.multi_call(nodes, __MODULE__, {:sync, Node.self, local_names})
     for {node, names} <- replies do
       synchronize_from_node(node, names)
@@ -266,7 +266,7 @@ defmodule Swarm.Tracker do
       end
     end
     # process stale entries
-    old = MapSet.new(ETS.get_names(node))
+    old = MapSet.new(Registry.get_names(node))
     new = MapSet.new(names)
     stale = MapSet.difference(old, new)
     for named <- stale do
@@ -287,7 +287,7 @@ defmodule Swarm.Tracker do
                     true -> @max_hash
                     false -> my_range_to
                   end
-    to_move = ETS.get_names()
+    to_move = Registry.get_names()
     for {name, pid, _ref, mfa, groups} <- to_move do
       case mfa do
         nil ->
@@ -308,12 +308,12 @@ defmodule Swarm.Tracker do
                   :restart ->
                     debug "handoff requested restart of #{inspect name}"
                     send(pid, {:swarm, :die})
-                    ETS.unregister_name(name)
+                    Registry.unregister_name(name)
                     GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
                   {:resume, state} ->
                     debug "handoff requested resume of #{inspect name}"
                     send(pid, {:swarm, :die})
-                    ETS.unregister_name(name)
+                    Registry.unregister_name(name)
                     GenServer.call({__MODULE__, dest_node}, {:handoff, name, {m,f,a}, groups, state})
                   :ignore ->
                     debug "handoff ignored for #{inspect name}"
@@ -322,23 +322,23 @@ defmodule Swarm.Tracker do
                     # bad return value, so we're going to restart
                     debug "handoff return value was bad, restarting #{inspect name}"
                     send(pid, {:swarm, :die})
-                    ETS.unregister_name(name)
+                    Registry.unregister_name(name)
                     GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
                 end
               catch
                 _exit, {:noproc, _} ->
                   debug "cannot handoff response (:noproc), restarting #{inspect name}"
-                  ETS.unregister_name(name)
+                  Registry.unregister_name(name)
                   GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
                 _exit, {:timeout, _} ->
                   debug "cannot handoff response (:timeout), restarting #{inspect name}"
                   send(pid, {:swarm, :die})
-                  ETS.unregister_name(name)
+                  Registry.unregister_name(name)
                   GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
               end
             :else ->
               debug "cannot handoff, restarting #{inspect name}"
-              ETS.unregister_name(name)
+              Registry.unregister_name(name)
               GenServer.call({__MODULE__, dest_node}, {:register, name, {m,f,a}, groups})
           end
         end

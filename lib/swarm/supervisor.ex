@@ -16,7 +16,7 @@ defmodule Swarm.Supervisor do
     end
 
     children = [
-      worker(Swarm.ETS, []),
+      worker(Swarm.Registry, []),
       worker(Swarm.Tracker, []),
       worker(cluster_strategy, [])
     ]

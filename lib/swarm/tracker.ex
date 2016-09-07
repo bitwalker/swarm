@@ -22,16 +22,16 @@ defmodule Swarm.Tracker do
   @spec register(term, mfa | pid) :: {:ok, pid} | {:error, term}
   def register(name, {m,f,a})
     when is_atom(m) and is_atom(f) and is_list(a) do
-    GenServer.call(__MODULE__, {:register, name, {m,f,a}})
+    GenServer.call(__MODULE__, {:register, name, {m,f,a}}, :infinity)
   end
   def register(name, pid) when is_pid(pid) do
-    GenServer.call(__MODULE__, {:register, name, pid})
+    GenServer.call(__MODULE__, {:register, name, pid}, :infinity)
   end
 
   @doc false
   @spec unregister(term) :: :ok | {:error, term}
   def unregister(name) do
-    GenServer.call(__MODULE__, {:unregister, name})
+    GenServer.call(__MODULE__, {:unregister, name}, :infinity)
   end
 
   @doc false

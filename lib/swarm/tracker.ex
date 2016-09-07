@@ -112,6 +112,7 @@ defmodule Swarm.Tracker do
   def handle_call({:register, name, mfa, groups}, _from, state) do
     case whereis(name) do
       pid when is_pid(pid) ->
+        debug "cannot register #{inspect name}, already registered to #{inspect pid}"
         {:reply, {:error, {:already_registered, pid}}, state}
       :undefined ->
         this_node = Node.self

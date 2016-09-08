@@ -24,7 +24,6 @@ defmodule Swarm.Supervisor do
                  [pubsub[:name] || Phoenix.PubSub.Test.PubSub,
                   pubsub[:opts] || []]),
       worker(Swarm.Ring, []),
-      worker(Swarm.Monitor, []),
       worker(Swarm.Registry, [[name: Swarm.Registry]]),
       worker(cluster_strategy, [])
     ]

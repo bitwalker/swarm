@@ -6,7 +6,7 @@ defmodule Swarm.Registry do
   It starts and owns an ETS table where the registry information is
   stored. It also exposes the registry via an API consumed by the Tracker.
   """
-  import Swarm.Logger
+  #import Swarm.Logger
   require Logger
 
   @behaviour Phoenix.Tracker
@@ -28,7 +28,6 @@ defmodule Swarm.Registry do
       :undefined ->
         meta = Enum.into(meta, %{node: node()})
         {:ok, _ref} = Phoenix.Tracker.track(__MODULE__, pid, :swarm_names, name, meta)
-        :ok = Swarm.Monitor.watch(name, pid)
         {:ok, pid}
       pid when is_pid(pid) ->
         {:error, {:already_registered, pid}}
@@ -57,7 +56,6 @@ defmodule Swarm.Registry do
     case get_by_name(name) do
       :undefined -> :ok
       pid when is_pid(pid) ->
-        Swarm.Monitor.unwatch(name)
         Phoenix.Tracker.untrack(__MODULE__, pid, :swarm_names, name)
     end
   end

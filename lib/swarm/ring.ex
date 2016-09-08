@@ -25,7 +25,7 @@ defmodule Swarm.Ring do
         :ok = :hash_ring.add_node(:swarm, "#{node}")
         Swarm.Registry.redistribute!
         {:noreply, [node|nodelist]}
-      err ->
+      _err ->
         {:noreply, nodelist}
     end
   end

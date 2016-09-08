@@ -15,11 +15,19 @@ defmodule Swarm.Supervisor do
       _           -> Swarm.Cluster.Epmd
     end
 
+    pubsub = Application.get_env(:swarm, :pubsub, [])
+
     children = [
-      worker(Swarm.Registry, []),
-      worker(Swarm.Tracker, []),
+      worker(:hash_ring, []),
+      supervisor(Task.Supervisor, [[name: Swarm.TaskSupervisor]]),
+      supervisor(pubsub[:adapter] || Phoenix.PubSub.PG2,
+                 [pubsub[:name] || Phoenix.PubSub.Test.PubSub,
+                  pubsub[:opts] || []]),
+      worker(Swarm.Ring, []),
+      worker(Swarm.Monitor, []),
+      worker(Swarm.Registry, [[name: Swarm.Registry]]),
       worker(cluster_strategy, [])
     ]
-    supervise(children, strategy: :one_for_one)
+    supervise(children, strategy: :rest_for_one)
   end
 end

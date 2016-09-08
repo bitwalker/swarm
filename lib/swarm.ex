@@ -9,15 +9,6 @@ defmodule Swarm do
   end
 
   @doc """
-  Explicitly join this node to the cluster.
-  If `autojoin: true` is set in the config, this call does nothing.
-  """
-  @spec join!() :: :ok | no_return
-  def join! do
-    Swarm.Tracker.join!
-  end
-
-  @doc """
   Registers the given name to the given pid, however names
   registered this way will not be shifted when the cluster
   topology changes, but this allows you to use `:swarm` as
@@ -26,7 +17,7 @@ defmodule Swarm do
   """
   @spec register_name(term, pid) :: :yes | :no
   def register_name(name, pid) when is_pid(pid) do
-    case Swarm.Tracker.register(name, pid) do
+    case Swarm.Registry.register_name(name, pid) do
       {:ok, _} -> :yes
       _ -> :no
     end
@@ -43,31 +34,26 @@ defmodule Swarm do
   are already started, it must be started by `:swarm`.
   """
   @spec register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
-  def register_name(name, module, function, args)
-  when is_atom(module) and is_atom(function) and is_list(args) do
-    Swarm.Tracker.register(name, {module, function, args})
-  end
+  defdelegate register_name(name, m, f, a), to: Swarm.Registry
 
   @doc """
   Unregisters the given name from the registry.
   """
   @spec unregister_name(term) :: :ok
-  def unregister_name(name) do
-    Swarm.Tracker.unregister(name)
-  end
+  defdelegate unregister_name(name), to: Swarm.Registry
 
   @doc """
   Get the pid of a registered name.
   """
   @spec whereis_name(term) :: pid | :undefined
-  def whereis_name(name), do: Swarm.Tracker.whereis(name)
+  def whereis_name(name), do: Swarm.Registry.get_by_name(name)
 
   @doc """
   Join a process to a group
   """
   @spec join(term, pid) :: :ok
   def join(group, pid) when is_pid(pid) do
-    Swarm.Tracker.join_group(group, pid)
+    Swarm.Registry.register_property(group, pid)
   end
 
   @doc """
@@ -75,7 +61,7 @@ defmodule Swarm do
   """
   @spec leave(term, pid) :: :ok
   def leave(group, pid) when is_pid(pid) do
-    Swarm.Tracker.leave_group(group, pid)
+    Swarm.Registry.unregister_property(group, pid)
   end
 
   @doc """
@@ -83,7 +69,7 @@ defmodule Swarm do
   """
   @spec members(term) :: [pid]
   def members(group) do
-    Swarm.Tracker.group_members(group)
+    Swarm.Registry.get_by_property(group)
   end
 
   @doc """
@@ -91,7 +77,8 @@ defmodule Swarm do
   """
   @spec publish(term, term) :: :ok
   def publish(group, msg) do
-    Swarm.Tracker.publish(group, msg)
+    members(group)
+    |> Enum.each(fn pid -> Kernel.send(pid, msg) end)
   end
 
   @doc """
@@ -103,7 +90,17 @@ defmodule Swarm do
   @spec multicall(term, term) :: [any()]
   @spec multicall(term, term, pos_integer) :: [any()]
   def multicall(group, msg, timeout \\ 5_000) do
-    Swarm.Tracker.multicall(group, msg, timeout)
+    members(group)
+    |> Enum.map(fn pid ->
+      Task.Supervisor.async_nolink(Swarm.TaskSupervisor, fn ->
+        try do
+          {:ok, pid, GenServer.call(pid, msg, timeout)}
+        catch
+          :exit, reason -> {:error, pid, reason}
+        end
+      end)
+    end)
+    |> Enum.map(&Task.await(&1, :infinity))
   end
 
   @doc """

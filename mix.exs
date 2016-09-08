@@ -3,8 +3,9 @@ defmodule Swarm.Mixfile do
 
   def project do
     [app: :swarm,
-     version: "0.4.4",
+     version: "0.5.0",
      elixir: "~> 1.3",
+     elixirc_paths: elixirc_paths(Mix.env),
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
      description: "Easy clustering, with registration and distribution of worker processes.",
@@ -14,12 +15,14 @@ defmodule Swarm.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :ssl, :inets],
+    [applications: [:logger, :ssl, :inets, :hash_ring, :phoenix_pubsub, :poison],
      mod: {Swarm, []}]
   end
 
   defp deps do
     [{:ex_doc, "~> 0.13", only: :dev},
+     {:phoenix_pubsub, "~> 1.0"},
+     {:hash_ring, github: "voicelayer/hash-ring"},
      {:poison, "~> 2.2"}]
   end
 
@@ -37,4 +40,7 @@ defmodule Swarm.Mixfile do
        "README.md"
      ]]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 end

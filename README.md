@@ -10,21 +10,24 @@ is designed to distribute these processes evenly across the cluster based on a c
 hashing algorithm, and automatically move processes in response to cluster topology changes,
 or node crashes.
 
+Swarm is built on top of [Phoenix PubSub](https://github.com/phoenixframework/phoenix_pubsub), and
+currently uses [hash-ring](https://github.com/voicelayer/hash-ring) for the hash ring implementation.
+
 View the docs [here](https://hexdocs.pm/swarm).
 
 ## Installation
 
 ```elixir
 defp deps do
-  [{:swarm, "~> 0.2"}]
+  [{:swarm, "~> 0.5"}]
 end
 ```
 
 ## Features
 
-- automatic cluster formation/healing based on a gossip protocol
-  via UDP, using a configurable port/multicast address, or alternatively
-  if running under Kubernetes, via a configurable pod selector and node
+- automatic cluster formation/healing using one of multiple available strategies:
+  standard Distributed Erlang facilities, gossip via UDP, using a configurable port/multicast address,
+  and via the Kubernetes API, via a configurable pod selector and node
   basename.
 - automatic distribution of registered processes across
   the cluster based on a consistent hashing algorithm,
@@ -51,7 +54,7 @@ end
 Like any distributed system, a choice must be made in terms of guarantees provided. 
 Swarm favors availability over consistency, even though it is eventually consistent, as network partitions,
 when healed, will be resolved by asking any copies of a given name that live on nodes where they don't
-belong, to shutdown, or kill them if they do not.
+belong to shutdown.
 
 Network partitions result in all partitions running an instance of processes created with Swarm.
 Swarm was designed for use in an IoT platform, where process names are generally based on physical device ids,
@@ -110,16 +113,6 @@ And in vm.args:
 In all configurations, Swarm will respond to nodeup/nodedown events by shifting registered processes
 around the cluster based on the hash of their name.
 
-## Autojoin
-
-Swarm will automatically join the cluster, however in some situations this can result in undesirable behaviour,
-namely, since Swarm starts before your application is started, if your application takes longer than it takes Swarm
-to start redistributing processes to the new node, and those processes need to be attached to a supervisor which is not
-yet running, an error will occur.
-
-To handle this, you can set `autojoin: false` in the config. You must then explicitly join the cluster with `Swarm.join!/0`.
-Until you do this, Swarm will still connect nodes, but will treat the new node as if it didn't exist until `join!` is called.
-
 ## Registration/Process Grouping
 
 Swarm is intended to be used by registering processes *before* they are created, and letting Swarm start
@@ -166,7 +159,7 @@ defmodule MyApp.WorkerSup do
   Registers a new worker, and creates the worker process
   """
   def register(worker_args) when is_list(worker_args) do
-    {:ok, _pid} = Supervisor.start_child(__MODULE__, worker_args)
+    {:ok, _pid} = Supervisor.start_child(__MODULE__, [worker_args])
   end
 end
 
@@ -194,10 +187,9 @@ defmodule MyApp.Worker do
   # **NOTE**: This is called *after* the process is successfully started,
   # so make sure to design your processes around this caveat if you
   # wish to hand off state like this.
-  def handle_call({:swarm, :end_handoff, delay}, {name, _}) do
-    {:reply, :ok, {name, delay}}
+  def handle_cast({:swarm, :end_handoff, delay}, {name, _}) do
+    {:noreply, {name, delay}}
   end
-  def handle_call(_, _, state), do: {:noreply, state}
 
   def handle_info(:timeout, {name, delay}) do
     IO.puts "#{inspect name} says hi!"
@@ -210,7 +202,6 @@ defmodule MyApp.Worker do
   def handle_info({:swarm, :die}, state) do
     {:stop, :shutdown, state}
   end
-  def handle_info(_, state), do: {:noreply, state}
 end
 
 defmodule MyApp.ExampleUsages do

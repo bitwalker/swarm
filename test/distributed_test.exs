@@ -28,7 +28,7 @@ defmodule Swarm.DistributedTests do
 
     # start 5 processes from node2 to be distributed between node1 and node2
     procs = for n <- 1..5 do
-      name = :"worker#{n}"
+      name = {:"worker#{n}", n}
       {:ok, pid} = :rpc.call(node2, Swarm, :register_name, [name, MyApp.Worker, :start_link, []])
       {node(pid), node2, name, pid}
     end

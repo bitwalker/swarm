@@ -21,7 +21,7 @@ defmodule Swarm.Ring do
   """
   @spec node_for_key(key :: term) :: node
   def node_for_key(name) do
-    {:ok, node} = :hash_ring.find_node(:swarm, "#{name}")
+    {:ok, node} = :hash_ring.find_node(:swarm, "#{inspect name}")
     :"#{node}"
   end
 

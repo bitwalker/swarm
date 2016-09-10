@@ -8,7 +8,7 @@ defmodule Swarm.Logger do
   @spec debug(String.t) :: :ok
   def debug(message) do
     if log? do
-      Logger.debug("(swarm) #{message}")
+      Logger.debug("(swarm on #{Node.self}) #{message}")
     else
       :ok
     end

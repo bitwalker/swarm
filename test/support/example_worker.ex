@@ -1,7 +1,7 @@
 defmodule MyApp.Worker do
   def start_link(), do: GenServer.start_link(__MODULE__, [])
-  def init(name) do
-    IO.inspect "starting #{inspect self()} on #{Node.self}"
+  def init(_name) do
+    #IO.inspect "starting #{inspect self()} on #{Node.self}"
     {:ok, {:rand.uniform(5_000), 0}, 0}
   end
 
@@ -10,7 +10,7 @@ defmodule MyApp.Worker do
   end
 
   def handle_cast({:swarm, :end_handoff, {delay, count}}, {_, _}) do
-    {:reply, :ok, {delay, count}}
+    {:noreply, {delay, count}}
   end
 
   def handle_info(:timeout, {delay, count}) do
@@ -25,8 +25,8 @@ defmodule MyApp.Worker do
   end
   def handle_info(_, state), do: {:noreply, state}
 
-  def terminate(_reason, state) do
-    IO.inspect "stopping #{inspect self()} on #{Node.self}"
+  def terminate(_reason, _state) do
+    #IO.inspect "stopping #{inspect self()} on #{Node.self}"
     :ok
   end
 end

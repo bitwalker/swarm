@@ -17,7 +17,7 @@ defmodule Swarm do
   """
   @spec register_name(term, pid) :: :yes | :no
   def register_name(name, pid) when is_pid(pid) do
-    case Swarm.Registry.register_name(name, pid) do
+    case Swarm.Registry.register_name(name, pid, [], []) do
       {:ok, _} -> :yes
       _ -> :no
     end
@@ -34,7 +34,9 @@ defmodule Swarm do
   are already started, it must be started by `:swarm`.
   """
   @spec register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
-  defdelegate register_name(name, m, f, a), to: Swarm.Registry
+  def register_name(name, m, f, a) do
+    Swarm.Registry.register_name(name, m, f, a, [])
+  end
 
   @doc """
   Unregisters the given name from the registry.

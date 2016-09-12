@@ -7,24 +7,24 @@
   publish/2, multicall/2, multicall/3, send/2
 ]).
 
--define(TRACKER, 'Elixir.Swarm.Tracker').
+-define(SWARM, 'Elixir.Swarm').
 
 %% @doc You shouldn't need this if you've added the
 %% the `swarm` application to your applications
 %% list, but it's here if you need it.
 %% @end
 start(Type, Args) ->
-    'Elixir.Swarm':start(Type, Args).
+    ?SWARM:start(Type, Args).
 
 %% Same as above, use if you need it.
 stop(State) ->
-    'Elixir.Swarm':stop(State).
+    ?SWARM:stop(State).
 
 %% @doc Registers a name to a pid. Should not be used directly,
 %% should only be used with `{via, swarm, Name}`
 -spec register_name(term(), pid()) -> yes | no.
 register_name(Name, Pid) ->
-    case ?TRACKER:register(Name, Pid) of
+    case ?SWARM:register_name(Name, Pid) of
         {ok, _} ->
              yes;
         _ ->
@@ -37,37 +37,37 @@ register_name(Name, Pid) ->
 %% @end
 -spec register_name(term(), atom(), atom(), [term()]) -> {ok, pid()} | {error, term()}.
 register_name(Name, Module, Function, Args) ->
-    ?TRACKER:register(Name, {Module, Function, Args}).
+    ?SWARM:register_name(Name, {Module, Function, Args}).
 
 %% @doc Unregisters a name.
 -spec unregister_name(term()) -> ok.
 unregister_name(Name) ->
-    ?TRACKER:unregister(Name).
+    ?SWARM:unregister_name(Name).
 
 %% @doc Get the pid of a registered name.
 -spec whereis_name(term()) -> pid() | undefined.
 whereis_name(Name) ->
-    ?TRACKER:whereis(Name).
+    ?SWARM:whereis_name(Name).
 
 %% @doc Join a process to a group
 -spec join(term(), pid()) -> ok.
 join(Group, Pid) ->
-    ?TRACKER:join_group(Group, Pid).
+    ?SWARM:join(Group, Pid).
 
 %% @doc Part a process from a group
 -spec leave(term(), pid()) -> ok.
 leave(Group, Pid) ->
-    ?TRACKER:leave_group(Group, Pid).
+    ?SWARM:leave(Group, Pid).
 
 %% @doc Get a list of pids which are members of the given group
 -spec members(term()) -> [pid].
 members(Group) ->
-    ?TRACKER:group_members(Group).
+    ?SWARM:members(Group).
 
 %% @doc Publish a message to all members of a group
 -spec publish(term(), term()) -> ok.
 publish(Group, Message) ->
-    ?TRACKER:publish(Group, Message).
+    ?SWARM:publish(Group, Message).
 
 %% @doc Call all members of a group with the given message
 %% and return the results as a list.
@@ -82,7 +82,7 @@ multicall(Group, Message) ->
 %% @end
 -spec multicall(term(), term(), pos_integer()) -> [any()].
 multicall(Group, Message, Timeout) ->
-    ?TRACKER:multicall(Group, Message, Timeout).
+    ?SWARM:multicall(Group, Message, Timeout).
 
 %% @doc This function sends a message to the process registered to the given name.
 %% It is intended to be used by GenServer when using `GenServer.cast/2`, but you

@@ -39,9 +39,23 @@ defmodule Swarm.Registry do
       node = Node.self
       case Swarm.Ring.node_for_key(name) do
         ^node ->
-          case apply(module, fun, args) do
-            {:ok, pid} -> register_name(name, pid, [mfa: {module, fun, args}], opts)
-            other -> other
+          create? = case get_in(opts, [:checked]) do
+            false -> true
+            _ ->
+              case :ets.match_object(:swarm_registry, {{name, :'$1'}, :'$2'}) do
+                [] -> true
+                dups ->
+                  [pid|_] = Enum.sort(Enum.map(dups, fn {{_,p},_} -> p end))
+                  {:error, {:already_registered, pid}}
+              end
+          end
+          case create? do
+            {:error, _} = err -> err
+            true ->
+              case apply(module, fun, args) do
+                {:ok, pid} -> do_register(name, pid, [mfa: {module, fun, args}])
+                other -> {:error, {:bad_return, other}}
+              end
           end
         other_node ->
           :rpc.call(other_node, __MODULE__, :register_name, [name, module, fun, args, opts])

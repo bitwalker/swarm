@@ -29,7 +29,7 @@ defmodule Swarm.Ring do
   Returns the list of nodes currently participating in the ring
   """
   @spec get_nodes() :: [node]
-  def get_nodes(), do: GenServer.call(__MODULE__, :nodelist)
+  def get_nodes(), do: GenServer.call(__MODULE__, :nodelist, :infinity)
 
   ## GenServer implementation
 

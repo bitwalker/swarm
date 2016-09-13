@@ -72,23 +72,26 @@ defmodule Swarm.Registry do
       :undefined ->
         :ok
       pid when is_pid(pid) ->
-        Phoenix.Tracker.untrack(__MODULE__, pid, :swarm_names, name)
+        GenServer.call(__MODULE__, {:untrack, pid, :swarm_names, name}, :infinity)
+        #Phoenix.Tracker.untrack(__MODULE__, pid, :swarm_names, name)
     end
   end
 
   @spec register_property(prop :: term, pid) :: :ok
   def register_property(prop, pid) do
-    Phoenix.Tracker.track(__MODULE__, pid, prop, pid, %{node: node()})
+    GenServer.call(__MODULE__, {:track, pid, prop, pid, %{node: node()}}, :infinity)
+    #Phoenix.Tracker.track(__MODULE__, pid, prop, pid, %{node: node()})
   end
 
   @spec unregister_property(prop :: term, pid) :: :ok
   def unregister_property(prop, pid) do
-    Phoenix.Tracker.untrack(__MODULE__, pid, prop, pid)
+    GenServer.call(__MODULE__, {:untrack, pid, prop, pid}, :infinity)
+    #Phoenix.Tracker.untrack(__MODULE__, pid, prop, pid)
   end
 
   @spec get_by_name(name :: term) :: :undefined | pid
   def get_by_name(name) do
-    case GenServer.call(__MODULE__, {:list, :swarm_names})
+    case GenServer.call(__MODULE__, {:list, :swarm_names}, :infinity)
       |> Phoenix.Tracker.State.get_by_topic(:swarm_names)
       |> Enum.find(fn {{_topic, _pid, ^name}, _meta, _tag} -> true; _ -> false end) do
         {{_topic, pid, _name}, _meta, _tag} -> pid
@@ -98,7 +101,7 @@ defmodule Swarm.Registry do
 
   @spec get_by_property(prop :: term) :: [pid]
   def get_by_property(prop) do
-    GenServer.call(__MODULE__, {:list, prop})
+    GenServer.call(__MODULE__, {:list, prop}, :infinity)
     |> Phoenix.Tracker.State.get_by_topic(prop)
     |> Enum.map(fn {{_topic, pid, _name}, _meta, _tag} -> pid end)
   end
@@ -119,10 +122,12 @@ defmodule Swarm.Registry do
   @doc false
   def redistribute! do
     current_node = Node.self
-    GenServer.call(__MODULE__, {:list, :swarm_names})
+    GenServer.call(__MODULE__, {:list, :swarm_names}, :infinity)
     |> Phoenix.Tracker.State.get_by_topic(:swarm_names)
-    |> Enum.each(fn {{_topic, pid, name}, meta, _tag} ->
-      Task.Supervisor.async_nolink(Swarm.TaskSupervisor, fn ->
+    |> Enum.chunk(10, 10, [])
+    |> Enum.each(fn chunk ->
+    chunk |> Enum.map(fn {{_topic, pid, name}, meta, _tag} ->
+      Task.start(fn ->
         try do
           case Swarm.Ring.node_for_key(name) do
             # this node and target node are the same
@@ -171,10 +176,15 @@ defmodule Swarm.Registry do
           end
         catch
           _type, err ->
-            error "failed to redistribute #{inspect pid} (#{Process.alive?(pid)}) on #{Node.self}: #{inspect err}"
+            if node(pid) == Node.self do
+              error "failed to redistribute #{inspect pid} (#{Process.alive?(pid)}) on #{Node.self}: #{inspect err}"
+            else
+              error "failed to redistribute #{inspect pid} on #{Node.self}: #{inspect err}"
+            end
         end
       end)
     end)
+      end)
   end
 
   # Responsible for resolving conflicts and handling registry changes
@@ -204,7 +214,8 @@ defmodule Swarm.Registry do
 
   defp do_register(name, pid, meta) do
     meta = Enum.into(meta, %{node: node(), pid: pid})
-    {:ok, _ref} = Phoenix.Tracker.track(__MODULE__, pid, :swarm_names, name, meta)
+    # {:ok, _ref} = Phoenix.Tracker.track(__MODULE__, pid, :swarm_names, name, meta)
+    {:ok, _ref} = GenServer.call(__MODULE__, {:track, pid, :swarm_names, name, meta}, :infinity)
     {:ok, pid}
   end
 

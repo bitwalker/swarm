@@ -27,20 +27,21 @@ defmodule Swarm.DistributedTests do
     :timer.sleep(1_000)
 
     # start 5 processes from node2 to be distributed between node1 and node2
-    procs = for n <- 1..5 do
+    worker_count = 5_000
+    procs = for n <- 1..worker_count do
       name = {:"worker#{n}", n}
       {:ok, pid} = :rpc.call(node2, Swarm, :register_name, [name, MyApp.Worker, :start_link, []])
       {node(pid), node2, name, pid}
     end
 
     # give time to sync
-    :timer.sleep(1_000)
+    :timer.sleep(10_000)
 
     # pull node2 from the cluster
     :rpc.call(node2, :net_kernel, :disconnect, [node1])
 
     # give time to sync
-    :timer.sleep(1_000)
+    :timer.sleep(60_000)
 
     # check to see if the processes were moved as expected
     procs
@@ -54,7 +55,7 @@ defmodule Swarm.DistributedTests do
     :rpc.call(node2, :net_kernel, :connect_node, [node1])
 
     # give time to sync
-    :timer.sleep(2_000)
+    :timer.sleep(120_000)
 
     # make sure processes are back in the correct place
     procs
@@ -64,14 +65,17 @@ defmodule Swarm.DistributedTests do
       assert node(pid) == node2
     end)
 
-    node1_members = :rpc.call(node1, Swarm.Registry, :get_by_property, [:swarm_names])
-    node2_members = :rpc.call(node2, Swarm.Registry, :get_by_property, [:swarm_names])
+    node1_members = :rpc.call(node1, Swarm.Registry, :get_by_property, [:swarm_names], :infinity)
+    node2_members = :rpc.call(node2, Swarm.Registry, :get_by_property, [:swarm_names], :infinity)
     n1ms = MapSet.new(node1_members)
     n2ms = MapSet.new(node2_members)
     empty_ms = MapSet.new([])
+    IO.inspect {:node1_members, length(node1_members)}
+    IO.inspect {:node2_members, length(node2_members)}
+    IO.inspect {:union, MapSet.size(MapSet.union(n1ms, n2ms))}
+    assert length(node1_members) == worker_count
+    assert length(node2_members) == worker_count
     assert ^empty_ms = MapSet.difference(n1ms, n2ms)
-    assert length(node1_members) == 5
-    assert length(node2_members) == 5
 
     Nodes.stop(node1)
     Nodes.stop(node2)

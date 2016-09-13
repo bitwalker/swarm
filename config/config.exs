@@ -1,6 +1,7 @@
 use Mix.Config
 
 config :swarm,
+  debug: false,
   registry: [log_level: :debug,
              broadcast_period: 10,
              max_silent_periods: 3,

@@ -10,10 +10,24 @@ defmodule Swarm.Supervisor do
     # This table is the conflict-free view of the local registry state
     :ets.new(:swarm_registry, [
           :named_table,
-          :set,
+          :ordered_set,
           :public,
           read_concurrency: true,
           write_concurrency: true,
+          keypos: 1])
+    :ets.new(:swarm_props, [
+          :named_table,
+          :ordered_set,
+          :public,
+          read_concurrency: true,
+          write_concurrency: true,
+          keypos: 1])
+    # This table stores process monitor references
+    :ets.new(:swarm_monitors, [
+          :named_table,
+          :set,
+          :public,
+          read_concurrency: true,
           keypos: 1])
 
     cluster_strategy = case Application.get_env(:swarm, :autocluster, true) do
@@ -31,8 +45,7 @@ defmodule Swarm.Supervisor do
     pubsub = Keyword.merge(default_pubsub_opts, pubsub)
     Application.put_env(:swarm, :pubsub, pubsub, persistent: true)
 
-    default_registry_opts = [name: Swarm.Registry,
-                             log_level: false,
+    default_registry_opts = [log_level: false,
                              broadcast_period: 10,
                              max_silent_periods: 3,
                              permdown_period: 10_000]
@@ -41,11 +54,12 @@ defmodule Swarm.Supervisor do
     Application.put_env(:swarm, :registry, registry, persistent: true)
 
     children = [
+      #supervisor(pubsub[:adapter], [pubsub[:name], pubsub[:opts]]),
       worker(:hash_ring, []),
+      #worker(Swarm.Tracker, [registry]),
       supervisor(Task.Supervisor, [[name: Swarm.TaskSupervisor]]),
-      supervisor(pubsub[:adapter], [pubsub[:name], pubsub[:opts]]),
       worker(Swarm.Ring, []),
-      worker(Swarm.Registry, [registry]),
+      worker(Swarm.Registry, [pubsub]),
       worker(cluster_strategy, [])
     ]
     supervise(children, strategy: :rest_for_one)

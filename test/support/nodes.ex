@@ -7,7 +7,7 @@ defmodule Swarm.Nodes do
         node_name
       _ ->
         code_paths = :code.get_path()
-        args = Enum.reduce(code_paths, "", fn path, acc ->
+        args = Enum.reduce(code_paths, "-connect_all false", fn path, acc ->
           acc <> " -pa #{path}"
         end)
         {:ok, node} = :slave.start_link('#{hostname}', name, String.to_charlist(args))
@@ -20,6 +20,7 @@ defmodule Swarm.Nodes do
           :rpc.call(node, Application, :put_env, [:swarm, k, v])
         end
     end
+
     {:ok, _} = :rpc.call(node, Application, :ensure_all_started, [:elixir])
     node
   end

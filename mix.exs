@@ -21,6 +21,7 @@ defmodule Swarm.Mixfile do
 
   defp deps do
     [{:ex_doc, "~> 0.13", only: :dev},
+     {:epmdpxy, github: "dergraf/epmdpxy", only: :test},
      {:phoenix_pubsub, "~> 1.0"},
      {:hash_ring, github: "voicelayer/hash-ring"},
      {:poison, "~> 2.2"}]

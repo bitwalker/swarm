@@ -1,18 +1,30 @@
 defmodule Swarm.Nodes do
+  alias Porcelain.Process, as: Proc
+  require Logger
+
   def start(name, config \\ nil) when is_atom(name) do
+    Application.ensure_started(:porcelain)
+    config_path = Path.join(__DIR__, "sys.config")
+
     "swarm_master@" <> hostname = "#{Node.self}"
     node_name = :'#{name}@#{hostname}'
-    node = case :net_adm.ping(node_name) do
-      :pong ->
-        node_name
-      _ ->
-        code_paths = :code.get_path()
-        args = Enum.reduce(code_paths, "-connect_all false", fn path, acc ->
-          acc <> " -pa #{path}"
-        end)
-        {:ok, node} = :slave.start_link('#{hostname}', name, String.to_charlist(args))
-        node
-    end
+    node_pid = spawn_link(fn ->
+      Process.flag(:trap_exit, true)
+      code_paths = :code.get_path()
+      base_args = [
+        "-noshell",
+        "-connect_all false", "-hidden", "-sname #{node_name}", "-setcookie swarm_test",
+        "-config #{config_path}",
+        "-eval 'io:format(\"ok\", []).'"]
+      args = Enum.reduce(code_paths, Enum.join(base_args, " "), fn path, acc ->
+        acc <> " -pa #{path}"
+      end)
+      _proc = %Proc{pid: pid} = Porcelain.spawn_shell("erl " <> args, [in: :receive, out: {:send, self()}])
+      :ok = wait_until_started(node_name, pid)
+      true = :net_kernel.hidden_connect_node(node_name)
+      receive_loop(node_name, pid)
+    end)
+    :ok = block_until_nodeup(node_pid)
     case config do
       nil -> :ok
       _ ->
@@ -20,13 +32,50 @@ defmodule Swarm.Nodes do
           :rpc.call(node, Application, :put_env, [:swarm, k, v])
         end
     end
-
     {:ok, _} = :rpc.call(node, Application, :ensure_all_started, [:elixir])
-    node
+    {:ok, node_name, node_pid}
   end
 
   def stop(name) when is_atom(name) do
-    "swarm_master@" <> hostname = "#{Node.self}"
-    :ok = :slave.stop(:'#{name}@#{hostname}')
+    :abcast = :rpc.eval_everywhere([name], :init, :stop, [])
+  end
+
+  defp block_until_nodeup(pid) do
+    case GenServer.call(pid, :ready) do
+      true ->
+        :ok
+      false ->
+        block_until_nodeup(pid)
+    end
+  end
+
+  defp wait_until_started(node_name, pid) do
+    receive do
+      {^pid, :data, :out, data} ->
+        #IO.inspect {node_name, data}
+        :ok
+      {^pid, :result, %{status: status}} ->
+        {:error, status}
+      {:'$gen_call', from, :ready} ->
+        GenServer.reply(from, false)
+        wait_until_started(node_name, pid)
+    end
+  end
+
+  defp receive_loop(node_name, pid) do
+    receive do
+      {^pid, :data, :out, data} ->
+        IO.puts data
+        receive_loop(node_name, pid)
+      {^pid, :result, %{status: status}} ->
+        IO.inspect {:exit, node_name, status}
+      {:EXIT, parent, reason} when parent == self() ->
+        Process.exit(pid, reason)
+      {:'$gen_call', from, :ready} ->
+        GenServer.reply(from, true)
+        receive_loop(node_name, pid)
+      :die ->
+        Process.exit(pid, :normal)
+    end
   end
 end

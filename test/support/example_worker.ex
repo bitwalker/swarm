@@ -1,7 +1,7 @@
 defmodule MyApp.Worker do
   def start_link(), do: GenServer.start_link(__MODULE__, [])
   def init(_name) do
-    IO.inspect "starting #{inspect self()} on #{Node.self}"
+    #IO.inspect "starting #{inspect self()} on #{Node.self}"
     {:ok, {:rand.uniform(5_000), 0}, 0}
   end
 
@@ -26,7 +26,7 @@ defmodule MyApp.Worker do
   def handle_info(_, state), do: {:noreply, state}
 
   def terminate(_reason, _state) do
-    IO.inspect "stopping #{inspect self()} on #{Node.self}"
+    #IO.inspect "stopping #{inspect self()} on #{Node.self}"
     :ok
   end
 end

@@ -17,7 +17,7 @@ defmodule Swarm do
   """
   @spec register_name(term, pid) :: :yes | :no
   def register_name(name, pid) when is_pid(pid) do
-    case Swarm.Registry.register_name(name, pid) do
+    case Swarm.Registry.register(name, pid) do
       {:ok, _} -> :yes
       _ -> :no
     end
@@ -34,90 +34,41 @@ defmodule Swarm do
   are already started, it must be started by `:swarm`.
   """
   @spec register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
-  defdelegate register_name(name, m, f, a), to: Swarm.Registry
+  defdelegate register_name(name, m, f, a), to: Swarm.Registry, as: :register
 
   @doc """
   Unregisters the given name from the registry.
   """
   @spec unregister_name(term) :: :ok
-  defdelegate unregister_name(name), to: Swarm.Registry
+  defdelegate unregister_name(name), to: Swarm.Registry, as: :unregister
 
   @doc """
   Get the pid of a registered name.
   """
   @spec whereis_name(term) :: pid | :undefined
-  def whereis_name(name) do
-    case :ets.lookup(:swarm_registry, name) do
-      [] -> :undefined
-      [{_, {pid, _}}] -> pid
-    end
-  end
+  defdelegate whereis_name(name), to: Swarm.Registry, as: :whereis
 
-  @doc """
-  Join a process to a group
-  """
   @spec join(term, pid) :: :ok
-  def join(group, pid) when is_pid(pid) do
-    Swarm.Registry.register_property(group, pid)
-  end
+  defdelegate join(group, pid), to: Swarm.Registry
 
-  @doc """
-  Leave a process group
-  """
   @spec leave(term, pid) :: :ok
-  def leave(group, pid) when is_pid(pid) do
-    Swarm.Registry.unregister_property(group, pid)
-  end
+  defdelegate leave(group, pid), to: Swarm.Registry
 
-  @doc """
-  Returns a list of pids which are members of the given group.
-  """
   @spec members(term) :: [pid]
-  def members(group) do
-    Swarm.Registry.get_by_property(group)
-  end
+  defdelegate members(group), to: Swarm.Registry
 
-  @doc """
-  Publish a message to all members of a group.
-  """
+  @spec registered() :: [{name :: term, pid}]
+  defdelegate registered, to: Swarm.Registry
+
   @spec publish(term, term) :: :ok
-  def publish(group, msg) do
-    members(group)
-    |> Enum.each(fn pid -> Kernel.send(pid, msg) end)
-  end
+  defdelegate publish(group, msg), to: Swarm.Registry
 
-  @doc """
-  Call all members of a group and return the results as a list.
+  @spec multi_call(term, term) :: [any()]
+  defdelegate multi_call(group, msg), to: Swarm.Registry
 
-  Takes an optional timeout value. Any responses not received within
-  this period are ignored. Default is 5s.
-  """
-  @spec multicall(term, term) :: [any()]
-  @spec multicall(term, term, pos_integer) :: [any()]
-  def multicall(group, msg, timeout \\ 5_000) do
-    members(group)
-    |> Enum.map(fn pid ->
-      Task.Supervisor.async_nolink(Swarm.TaskSupervisor, fn ->
-        try do
-          {:ok, pid, GenServer.call(pid, msg, timeout)}
-        catch
-          :exit, reason -> {:error, pid, reason}
-        end
-      end)
-    end)
-    |> Enum.map(&Task.await(&1, :infinity))
-  end
+  @spec multi_call(term, term, pos_integer) :: [any()]
+  defdelegate multi_call(group, msg, timeout), to: Swarm.Registry
 
-  @doc """
-  This function sends a message to the process registered to the given name.
-  It is intended to be used by GenServer when using `GenServer.cast/2`, but you
-  may use it to send any message to the desired process.
-  """
   @spec send(term, term) :: :ok
-  def send(name, msg) do
-    case whereis_name(name) do
-      pid when is_pid(pid) -> Kernel.send(pid, msg)
-      :undefined -> :ok
-    end
-  end
+  defdelegate send(name, msg), to: Swarm.Registry
 end

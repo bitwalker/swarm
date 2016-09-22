@@ -4,7 +4,7 @@
   start/2, stop/1,
   register_name/2, register_name/4, unregister_name/1, whereis_name/1,
   join/2, leave/2, members/1,
-  publish/2, multicall/2, multicall/3, send/2
+  publish/2, multi_call/2, multi_call/3, send/2
 ]).
 
 -define(SWARM, 'Elixir.Swarm').
@@ -24,12 +24,7 @@ stop(State) ->
 %% should only be used with `{via, swarm, Name}`
 -spec register_name(term(), pid()) -> yes | no.
 register_name(Name, Pid) ->
-    case ?SWARM:register_name(Name, Pid) of
-        {ok, _} ->
-             yes;
-        _ ->
-             no
-    end.
+    ?SWARM:register_name(Name, Pid).
 
 %% @doc Registers a name to a process started by the provided
 %% module/function/args. If the MFA does not start a process,
@@ -72,17 +67,17 @@ publish(Group, Message) ->
 %% @doc Call all members of a group with the given message
 %% and return the results as a list.
 %% @end
--spec multicall(term(), term()) -> [any()].
-multicall(Group, Message) ->
-    multicall(Group, Message, 5000).
+-spec multi_call(term(), term()) -> [any()].
+multi_call(Group, Message) ->
+    multi_call(Group, Message, 5000).
 
 %% @doc Same as multicall/2, but takes a timeout.
 %% Any responses not received within that period are
 %% ignored.
 %% @end
--spec multicall(term(), term(), pos_integer()) -> [any()].
-multicall(Group, Message, Timeout) ->
-    ?SWARM:multicall(Group, Message, Timeout).
+-spec multi_call(term(), term(), pos_integer()) -> [any()].
+multi_call(Group, Message, Timeout) ->
+    ?SWARM:multi_call(Group, Message, Timeout).
 
 %% @doc This function sends a message to the process registered to the given name.
 %% It is intended to be used by GenServer when using `GenServer.cast/2`, but you
@@ -90,7 +85,4 @@ multicall(Group, Message, Timeout) ->
 %% @end
 -spec send(term(), term()) -> ok.
  send(Name, Msg) ->
-     case whereis_name(Name) of
-         Pid when is_pid(Pid) -> erlang:send(Pid, Msg);
-         undefined -> ok
-     end.
+    ?SWARM:send(Name, Msg).

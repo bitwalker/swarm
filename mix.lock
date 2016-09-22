@@ -1,6 +1,5 @@
-%{"earmark": {:hex, :earmark, "1.0.1", "2c2cd903bfdc3de3f189bd9a8d4569a075b88a8981ded9a0d95672f6e2b63141", [:mix], []},
-  "epmdpxy": {:git, "https://github.com/dergraf/epmdpxy.git", "88118621bbf4ed1c98418ca2883b851bcca674a2", []},
+%{"benchee": {:hex, :benchee, "0.4.0", "1c7c5bd4917490b4dd4038876875e6994d9657d3a1865ffcec62a7b73b5fd809", [:mix], []},
+  "earmark": {:hex, :earmark, "1.0.1", "2c2cd903bfdc3de3f189bd9a8d4569a075b88a8981ded9a0d95672f6e2b63141", [:mix], []},
   "ex_doc": {:hex, :ex_doc, "0.13.1", "658dbfc8cc5b0fac192f0f3254efe66ee6294200804a291549e0aeb052053bba", [:mix], [{:earmark, "~> 1.0", [hex: :earmark, optional: false]}]},
-  "hash_ring": {:git, "https://github.com/voicelayer/hash-ring.git", "3bc9f2fd14d0e161cc0b5b6e7fcd7d3f3ec5791a", []},
-  "phoenix_pubsub": {:hex, :phoenix_pubsub, "1.0.0", "c31af4be22afeeebfaf246592778c8c840e5a1ddc7ca87610c41ccfb160c2c57", [:mix], []},
-  "poison": {:hex, :poison, "2.2.0", "4763b69a8a77bd77d26f477d196428b741261a761257ff1cf92753a0d4d24a63", [:mix], []}}
+  "poison": {:hex, :poison, "2.2.0", "4763b69a8a77bd77d26f477d196428b741261a761257ff1cf92753a0d4d24a63", [:mix], []},
+  "porcelain": {:hex, :porcelain, "2.0.2", "c1d4863de3e391195e36457bb3d7e17ee1bca5a44f1d708bc037c313342f58e9", [:mix], []}}

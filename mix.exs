@@ -15,15 +15,14 @@ defmodule Swarm.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :inets, :hash_ring, :phoenix_pubsub, :poison],
+    [applications: [:logger, :inets, :poison],
      mod: {Swarm, []}]
   end
 
   defp deps do
     [{:ex_doc, "~> 0.13", only: :dev},
-     {:epmdpxy, github: "dergraf/epmdpxy", only: :test},
-     {:phoenix_pubsub, "~> 1.0"},
-     {:hash_ring, github: "voicelayer/hash-ring"},
+     {:benchee, "~> 0.4", only: :dev},
+     {:porcelain, "~> 2.0", only: [:dev, :test]},
      {:poison, "~> 2.2"}]
   end
 

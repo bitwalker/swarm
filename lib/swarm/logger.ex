@@ -8,7 +8,7 @@ defmodule Swarm.Logger do
   @spec debug(String.t) :: :ok
   def debug(message) do
     if log? do
-      Logger.debug("(swarm on #{Node.self}) #{message}")
+      Logger.debug("[swarm on #{Node.self}] #{message}")
     else
       :ok
     end
@@ -18,13 +18,13 @@ defmodule Swarm.Logger do
   Log a warning message
   """
   @spec warn(String.t) :: :ok
-  def warn(message),  do: Logger.warn("(swarm) #{message}")
+  def warn(message),  do: Logger.warn("[swarm on #{Node.self}] #{message}")
 
   @doc """
   Log a error message
   """
   @spec error(String.t) :: :ok
-  def error(message), do: Logger.error("(swarm) #{message}")
+  def error(message), do: Logger.error("[swarm on #{Node.self}] #{message}")
 
   defp log?, do: Application.get_env(:swarm, :debug, false)
 

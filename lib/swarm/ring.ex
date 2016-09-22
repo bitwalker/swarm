@@ -1,130 +1,78 @@
 defmodule Swarm.Ring do
   @moduledoc """
-  This module defines a GenServer which manages
-  the hash ring for the registry. The ring is setup
-  as follows:
+  This module defines an API for creating/manipulating a hash ring.
+  The internal datastructure for the hash ring is actually a gb_tree, which provides
+  fast lookups for a given key on the ring.
 
-  - Each node in the cluster is given 128 replicas in the ring for
-    even distribution
-  - When nodeup events are detected, a node is inserted in the ring
-    if it is running Swarm
-  - When nodedown events are detected, a node is removed from the ring
-
-  Registered names are then distributed around the ring based on the hash of their name.
+  - The ring is a continuum of 2^32 "points", or integer values
+  - Nodes are sharded into 128 points, and distributed across the ring
+  - Each shard owns the keyspace below it
+  - Keys are hashed and assigned a point on the ring, the node for a given
+    ring is determined by finding the next highest point on the ring for a shard,
+    the node that shard belongs to is then the node which owns that key.
+  - If a key's hash does not have any shards above it, it belongs to the first shard,
+    this mechanism is what creates the ring-like topology.
+  - A node is only added to the ring if it is running Swarm
+  - When nodes are added/removed from the ring, only a small subset of keys must be reassigned
   """
-  use GenServer
-  import Swarm.Logger
 
-  def nodeup(node),   do: GenServer.cast(__MODULE__, {:nodeup, node})
-  def nodedown(node), do: GenServer.cast(__MODULE__, {:nodedown, node})
+  @type t :: :gb_trees.tree
+
+  @hash_range trunc(:math.pow(2, 32) - 1)
 
   @doc """
-  Returns the node name for the given key based on it's hash and
-  assignment within the ring
+  Creates a new hash ring structure, with no nodes added yet
   """
-  @spec node_for_key(key :: term) :: node
-  def node_for_key(name) do
-    {:ok, node} = :hash_ring.find_node(:swarm, "#{inspect name}")
-    :"#{node}"
+  @spec new() :: __MODULE__.t
+  def new(), do: :gb_trees.empty
+
+  @doc """
+  Creates a new hash ring structure, seeded with the given node,
+  with an optional weight provided which determines the number of
+  virtual nodes (shards) that will be assigned to it on the ring.
+
+  The default weight for a node is 128
+  """
+  @spec new(node(), pos_integer) :: __MODULE__.t
+  def new(node, weight \\ 128), do: add_node(new(), node, weight)
+
+  @doc """
+  Adds a node to the hash ring, with an optional weight provided which
+  determines the number of virtual nodes (shards) that will be assigned to
+  it on the ring.
+
+  The default weight for a node is 128
+  """
+  @spec add_node(__MODULE__.t, node(), pos_integer) :: __MODULE__.t
+  def add_node(ring, node, weight \\ 128) do
+    Enum.reduce(1..weight, ring, fn i, acc ->
+      :gb_trees.insert(:erlang.phash2("#{node}#{i}", @hash_range), node, acc)
+    end)
   end
 
   @doc """
-  Returns the list of nodes currently participating in the ring
+  Removes a node from the hash ring.
   """
-  @spec get_nodes() :: [node]
-  def get_nodes() do
-    [Node.self|Enum.map(:ets.tab2list(:swarm_nodes), fn {n,_,_} -> n end)]
+  @spec remove_node(__MODULE__.t, node()) :: __MODULE__.t
+  def remove_node(ring, node) do
+    :gb_trees.to_list(ring)
+    |> Enum.filter(fn {_key, ^node} -> false; _ -> true end)
+    |> :gb_trees.from_orddict()
   end
 
-  def get_members() do
-    [Process.whereis(Swarm.Registry)|Enum.map(:ets.tab2list(:swarm_nodes), fn {_,pid,_} -> pid end)]
-  end
-
-  def publish(msg) do
-    Enum.each(get_members, &GenServer.cast(&1, msg))
-  end
-
-  def multi_call(msg, timeout \\ 5_000) do
-    Enum.map(get_members, fn pid ->
-      Task.Supervisor.async_nolink(Swarm.TaskSupervisor, fn ->
-        try do
-          {:ok, pid, GenServer.call(pid, msg, timeout)}
-        catch
-          :exit, reason -> {:error, pid, reason}
-        end
-      end)
-    end)
-    |> Enum.map(&Task.await(&1, :infinity))
-  end
-
-  ## GenServer implementation
-
-  def start_link(), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
-  def init(_) do
-    :ets.new(:swarm_nodes, [:named_table, :public, :set, keypos: 1, read_concurrency: true])
-    :ok = :hash_ring.create_ring(:swarm, 128)
-    :ok = :hash_ring.add_node(:swarm, "#{Node.self}")
-    {:ok, nil}
-  end
-
-  # Handles node up/down events
-  def handle_cast({:nodeup, node}, state) do
-    IO.inspect {:nodeup, Node.self, node}
-    case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
-      {:ok, _} ->
-        case :rpc.call(node, Process, :whereis, [Swarm.Registry]) do
-          pid when is_pid(pid) ->
-            :ok = :hash_ring.add_node(:swarm, "#{node}")
-            ref = Process.monitor(pid)
-            :ets.insert(:swarm_nodes, {node, pid, ref})
-            notify({:join, pid})
-            debug "node added to ring: #{node}"
-        end
-        {:noreply, state}
-      _err ->
-        {:noreply, state}
+  @doc """
+  Determines which node owns the given key.
+  This function assumes that the ring has been populated with at least one node.
+  """
+  @spec key_to_node(__MODULE__.t, term) :: node() | no_return
+  def key_to_node(ring, key) do
+    hash = :erlang.phash2(key, @hash_range)
+    case :gb_trees.iterator_from(hash, ring) do
+      [{_key, node, _, _}|_] ->
+        node
+      _ ->
+        {_key, node} = :gb_trees.smallest(ring)
+        node
     end
-  end
-  def handle_cast({:nodedown, node}, state) do
-    IO.inspect {:nodedown, Node.self, node}
-    case :ets.lookup(:swarm_nodes, node) do
-      [] ->
-        IO.inspect {:nodedown, :exists?, false}
-      [{_node, _pid, ref}] ->
-        Process.demonitor(ref, [:flush])
-        :ets.delete(:swarm_nodes, node)
-        :ok = :hash_ring.remove_node(:swarm, "#{node}")
-        notify({:leave, node})
-        debug "node removed from ring: #{node}"
-    end
-    {:noreply, state}
-  end
-  def handle_info({:DOWN, _ref, _type, pid, _info}, state) do
-    IO.inspect {:DOWN, Node.self, pid}
-    case :ets.match_object(:swarm_nodes, {:'$1', pid, :'$2'}) do
-      [] ->
-        :ok
-      [{node, ^pid, _ref}] ->
-        true = :ets.delete(:swarm_nodes, node)
-        :ok = :hash_ring.remove_node(:swarm, "#{node}")
-        notify({:leave, pid})
-        debug "node removed from ring: #{node}"
-    end
-    {:noreply, state}
-  end
-  def handle_info(_, state) do
-    {:noreply, state}
-  end
-
-  def terminate(_reason, _state) do
-    true = :ets.delete(:swarm_nodes)
-    :ok = :hash_ring.delete_ring(:swarm)
-  end
-
-  defp notify(msg) do
-    [{nil, Process.whereis(Swarm.Registry), nil}|:ets.tab2list(:swarm_nodes)]
-    |> Enum.each(fn {node, pid, _ref} ->
-      send(pid, msg)
-    end)
   end
 end

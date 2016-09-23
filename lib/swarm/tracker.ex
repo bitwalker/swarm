@@ -158,10 +158,10 @@ defmodule Swarm.Tracker do
         begin_sync(new_sync_node, %{state | nodes: nodes}, pending_requests)
       {:nodedown, node, _info} ->
         debug "[tracker] node down #{node}"
-        begin_sync(sync_node, nodes -- [node], pending_requests)
+        begin_sync(sync_node, %{state | nodes: nodes -- [node]}, pending_requests)
       {:nodedown, node} ->
         debug "[tracker] node down #{node}"
-        begin_sync(sync_node, nodes -- [node], pending_requests)
+        begin_sync(sync_node, %{state | nodes: nodes -- [node]}, pending_requests)
       {:sync_recv, from, clock, registry} ->
         # sync with node
         debug "[tracker] received sync response, loading registry.."

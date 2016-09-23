@@ -4,7 +4,7 @@ ring = Swarm.Ring.new(:'a@nohost')
 ring = Swarm.Ring.add_node(ring, :'b@nohost')
 
 # NOTE: Uncomment the following after adding voicelayer/hash-ring to your deps
-# In my tests, Swarm.Ring performs 10-20x better at mapping keys to to the ring
+# In my tests, Swarm.Ring performs 5-10x better at mapping keys to to the ring
 # I'm not entirely sure why this is, as hash_ring is implemented with a NIF, but I
 # suspect my gb_tree based implementation is just much more efficient at searching the
 # ring, and hash_ring uses a naive search or something, anyway, feel free to test yourself

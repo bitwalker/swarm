@@ -10,9 +10,6 @@ is designed to distribute these processes evenly across the cluster based on a c
 hashing algorithm, and automatically move processes in response to cluster topology changes,
 or node crashes.
 
-Swarm is built on top of [Phoenix PubSub](https://github.com/phoenixframework/phoenix_pubsub), and
-currently uses [hash-ring](https://github.com/voicelayer/hash-ring) for the hash ring implementation.
-
 View the docs [here](https://hexdocs.pm/swarm).
 
 ## Installation
@@ -123,8 +120,8 @@ to cluster topology changes.
 
 Swarm also offers process grouping, similar to the way `gproc` does properties. You "join" a process to a group
 after it's started, typically in `init/1`, with `Swarm.join/2`. You can then publish messages (i.e. `cast`) with
-`Swarm.publish/2`, and/or call all processes in a group and collect results (i.e. `call`) with `Swarm.multicall/2` or
-`Swarm.multicall/3`. Leaving a group can be done with `Swarm.leave/2`, but will automatically be done when a process
+`Swarm.publish/2`, and/or call all processes in a group and collect results (i.e. `call`) with `Swarm.multi_call/2` or
+`Swarm.multi_call/3`. Leaving a group can be done with `Swarm.leave/2`, but will automatically be done when a process
 dies. Join/leave can be used to do pubsub like things, or perform operations over a group of related processes.
 
 ## Example
@@ -212,7 +209,7 @@ defmodule MyApp.ExampleUsages do
   to the `:foo` group
   """
   def start_worker(name) do
-    {:ok, pid} = Swarm.register(name, MyApp.Supervisor, :register, [name: name])
+    {:ok, pid} = Swarm.register_name(name, MyApp.Supervisor, :register, [name: name])
     Swarm.join(:foo, pid)
   end
 
@@ -245,7 +242,7 @@ defmodule MyApp.ExampleUsages do
   Call all members of group `:foo` and collect the results,
   any failures or nil values are filtered out of the result list
   """
-  def call_foos(msg), do: Swarm.multicall(:foo, msg)
+  def call_foos(msg), do: Swarm.multi_call(:foo, msg)
 
   ...snip...
 end
@@ -257,5 +254,5 @@ MIT
 
 ## TODO
 
-- automated testing
+- automated testing (some are present)
 - QuickCheck model

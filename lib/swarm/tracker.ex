@@ -12,10 +12,37 @@ defmodule Swarm.Tracker do
 
   # Public API
 
-  def track(name, pid),     do: GenServer.call(__MODULE__, {:track, name, pid, nil}, :infinity)
+  @doc """
+  Tracks a process (pid) with the given name.
+  Tracking processes with this function will *not* restart the process when
+  it's parent node goes down, or shift the process to other nodes if the cluster
+  topology changes. It is strictly for global name registration.
+  """
+  def track(name, pid), do: GenServer.call(__MODULE__, {:track, name, pid, nil}, :infinity)
+
+  @doc """
+  Tracks a process created via the provided module/function/args with the given name.
+  The process will be distributed on the cluster based on the hash of it's name on the hash ring.
+  If the process's parent node goes down, it will be restarted on the new node which own's it's keyspace.
+  If the cluster topology changes, and the owner of it's keyspace changes, it will be shifted to
+  the new owner, after initiating the handoff process as described in the documentation.
+  """
   def track(name, m, f, a), do: GenServer.call(__MODULE__, {:track, name, m, f, a}, :infinity)
 
+  @doc """
+  Stops tracking the given process (pid)
+  """
   def untrack(pid), do: GenServer.call(__MODULE__, {:untrack, pid}, :infinity)
+
+  @doc """
+  Adds some metadata to the given process (pid). This is primarily used for tracking group membership.
+  """
+  def add_meta(key, value, pid), do: GenServer.cast(__MODULE__, {:add_meta, key, value, pid})
+
+  @doc """
+  Removes metadata from the given process (pid).
+  """
+  def remove_meta(key, pid), do: GenServer.cast(__MODULE__, {:remove_meta, key, pid})
 
   ## Process Internals / Internal API
 
@@ -250,6 +277,10 @@ defmodule Swarm.Tracker do
             loop(state, parent, debug)
         end
         loop(state, parent, debug)
+      # A remote registration failed due to nodedown during the call
+      {:retry, {:track, name, m, f, a, from}} ->
+        {:ok, state} = handle_retry({:track, name, m, f, a}, from, state)
+        loop(state, parent, debug)
       # A change event received from another node
       {:event, from, rclock, event} ->
         {:ok, state} = handle_event(event, from, rclock, state)
@@ -391,6 +422,69 @@ defmodule Swarm.Tracker do
         {:ok, state}
     end
   end
+  defp handle_event({:add_meta, key, value, pid}, _from, rclock, %TrackerState{clock: clock} = state) do
+    debug "[tracker] event: add_meta #{inspect {key, value}} to #{inspect pid}"
+    case Registry.get_by_pid(pid) do
+      :undefined ->
+        {:ok, state}
+      entry(name: name, meta: old_meta, clock: lclock) ->
+        cond do
+          ITC.leq(lclock, rclock) ->
+            new_meta = Map.put(old_meta, key, value)
+            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
+            {:ok, %{state | clock: ITC.event(clock)}}
+          :else ->
+            # we're going to take the last-writer wins approach for resolution for now
+            new_meta = Map.merge(old_meta, %{key => value})
+            # we're going to keep our local clock though and re-broadcast the update to ensure we converge
+            clock = ITC.event(clock)
+            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(clock)}])
+            debug "[tracker] conflicting meta for #{inspect name}, updating and notifying other nodes"
+            broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
+            {:ok, %{state | clock: clock}}
+        end
+    end
+  end
+  defp handle_event({:update_meta, new_meta, pid}, _from, rclock, %TrackerState{clock: clock} = state) do
+    debug "[tracker] event: update_meta #{inspect new_meta} for #{inspect pid}"
+    case Registry.get_by_pid(pid) do
+      :undefined ->
+        {:ok, state}
+      entry(name: name, meta: old_meta, clock: lclock) ->
+        cond do
+          ITC.leq(lclock, rclock) ->
+            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
+            {:ok, %{state | clock: ITC.event(clock)}}
+          :else ->
+            # we're going to take the last-writer wins approach for resolution for now
+            new_meta = Map.merge(old_meta, new_meta)
+            # we're going to keep our local clock though and re-broadcast the update to ensure we converge
+            clock = ITC.event(clock)
+            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(clock)}])
+            debug "[tracker] conflicting meta for #{inspect name}, updating and notifying other nodes"
+            broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
+            {:ok, %{state | clock: clock}}
+        end
+    end
+  end
+  defp handle_event({:remove_meta, key, pid}, _from, rclock, %TrackerState{clock: clock} = state) do
+    debug "[tracker] event: remove_meta #{inspect key} from #{inspect pid}"
+    case Registry.get_by_pid(pid) do
+      :undefined ->
+        {:ok, state}
+      entry(name: name, meta: meta, clock: lclock) ->
+        cond do
+          ITC.leq(lclock, rclock) ->
+            new_meta = Map.drop(meta, [key])
+            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
+            {:ok, %{state | clock: ITC.event(clock)}}
+          :else ->
+            warn "[tracker] received remove_meta event, but local clock conflicts with remote clock, event unhandled"
+            # Handle conflict?
+            {:ok, state}
+        end
+    end
+  end
 
   defp handle_call({:track, name, pid, meta}, _from, %TrackerState{} = state) do
     debug "[tracker] call: track #{inspect {name, pid, meta}}"
@@ -421,8 +515,14 @@ defmodule Swarm.Tracker do
       remote_node ->
         debug "[tracker] starting #{inspect {m,f,a}} on #{remote_node}"
         Task.start(fn ->
-          reply = GenServer.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity)
-          GenServer.reply(from, reply)
+          try do
+            reply = GenServer.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity)
+            GenServer.reply(from, reply)
+          catch
+            _, err ->
+              warn "[tracker] failed to start #{inspect name} on #{remote_node}: #{inspect err}, retrying operation.."
+              send(__MODULE__, {:retry, {:track, name, m, f, a, from}})
+          end
         end)
         {:noreply, state}
     end
@@ -431,6 +531,23 @@ defmodule Swarm.Tracker do
   defp handle_cast({:untrack, pid}, %TrackerState{} = state) do
     debug "[tracker] call: untrack #{inspect pid}"
     remove_registration_by_pid(state, pid)
+  end
+  defp handle_cast({:add_meta, key, value, pid}, %TrackerState{} = state) do
+    debug "[tracker] call: add_meta #{inspect {key, value}} to #{inspect pid}"
+    add_meta_by_pid(state, {key, value}, pid)
+  end
+  defp handle_cast({:remove_meta, key, pid}, %TrackerState{} = state) do
+    remove_meta_by_pid(state, key, pid)
+  end
+
+  defp handle_retry({:track, _, _, _, _} = event, from, state) do
+    case handle_call(event, from, state) do
+      {:reply, reply, state} ->
+        GenServer.reply(from, reply)
+        {:ok, state}
+        {:noreply, state}
+        {:ok, state}
+    end
   end
 
   # Called when a pid dies, and the monitor is triggered
@@ -511,6 +628,32 @@ defmodule Swarm.Tracker do
         :ets.delete_object(:swarm_registry, obj)
         clock = ITC.event(clock)
         broadcast_event(state.nodes, ITC.peek(clock), {:untrack, pid})
+        {:noreply, %{state | clock: clock}}
+    end
+  end
+
+  defp add_meta_by_pid(%TrackerState{clock: clock} = state, {key, value}, pid) do
+    case Registry.get_by_pid(pid) do
+      :undefined ->
+        broadcast_event(state.nodes, ITC.peek(clock), {:add_meta, key, value, pid})
+      entry(name: name, meta: old_meta) ->
+        new_meta = Map.put(old_meta, key, value)
+        clock = ITC.event(clock)
+        :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(clock)}])
+        broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
+        {:noreply, %{state | clock: clock}}
+    end
+  end
+
+  defp remove_meta_by_pid(%TrackerState{clock: clock} = state, key, pid) do
+    case Registry.get_by_pid(pid) do
+      :undefined ->
+        broadcast_event(state.nodes, ITC.peek(clock), {:remove_meta, key, pid})
+      entry(name: name, meta: old_meta) ->
+        new_meta = Map.drop(old_meta, [key])
+        :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(clock)}])
+        clock = ITC.event(clock)
+        broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
         {:noreply, %{state | clock: clock}}
     end
   end

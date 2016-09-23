@@ -3,11 +3,8 @@ defmodule Swarm.Registry do
   import Swarm.Entry
   alias Swarm.Tracker
 
-  @spec register(term, pid) :: {:ok, pid} | {:error, term}
-  def register(name, pid), do: Tracker.track(name, pid)
-
-  @spec register(term, module, atom, [any()]) :: {:ok, pid} | {:error, term}
-  def register(name, module, fun, args), do: Tracker.track(name, module, fun, args)
+  defdelegate register(name, pid), to: Tracker, as: :track
+  defdelegate register(name, module, fun, args), to: Tracker, as: :track
 
   @spec unregister(term) :: :ok
   def unregister(name) do
@@ -26,18 +23,20 @@ defmodule Swarm.Registry do
   end
 
   @spec join(term, pid) :: :ok
-  def join(_group, _pid) do
-    :ok
+  def join(group, pid) do
+    Tracker.add_meta(group, true, pid)
   end
 
   @spec leave(term, pid) :: :ok
-  def leave(_group, _pid) do
-    :ok
+  def leave(group, pid) do
+    Tracker.remove_meta(group, pid)
   end
 
   @spec members(group :: term) :: [pid]
-  def members(_group) do
-    []
+  def members(group) do
+    :ets.tab2list(:swarm_registry)
+    |> Enum.filter_map(fn entry(meta: %{^group => _}) -> true; _ -> false end,
+                       fn entry(pid: pid) -> pid end)
   end
 
   @spec registered() :: [{name :: term, pid}]
@@ -47,14 +46,13 @@ defmodule Swarm.Registry do
   end
 
   @spec publish(term, term) :: :ok
-  def publish(_group, _msg) do
-    :ok
+  def publish(group, msg) do
+    for pid <- members(group), do: Kernel.send(pid, msg)
   end
 
   @spec multi_call(term, term, pos_integer) :: [term]
-  def multi_call(_group, msg, timeout \\ 5_000) do
-    members = []
-    Enum.map(members, fn member ->
+  def multi_call(group, msg, timeout \\ 5_000) do
+    Enum.map(members(group), fn member ->
       Task.Supervisor.async_nolink(Swarm.TaskSupervisor, fn ->
         GenServer.call(member, msg, timeout)
       end)

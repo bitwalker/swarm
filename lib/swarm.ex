@@ -4,6 +4,10 @@ defmodule Swarm do
   """
   use Application
 
+  @doc """
+  Starts the Swarm application. You should not need to do this unless
+  you are manually handling Swarm's application lifecycle.
+  """
   def start(_type, _args) do
     Swarm.Supervisor.start_link()
   end
@@ -48,27 +52,58 @@ defmodule Swarm do
   @spec whereis_name(term) :: pid | :undefined
   defdelegate whereis_name(name), to: Swarm.Registry, as: :whereis
 
+  @doc """
+  Joins a process to a group
+  """
   @spec join(term, pid) :: :ok
   defdelegate join(group, pid), to: Swarm.Registry
 
+  @doc """
+  Removes a process from a group
+  """
   @spec leave(term, pid) :: :ok
   defdelegate leave(group, pid), to: Swarm.Registry
 
+  @doc """
+  Gets all the members of a group. Returns a list of pids.
+  """
   @spec members(term) :: [pid]
   defdelegate members(group), to: Swarm.Registry
 
+  @doc """
+  Gets a list of all registered names and their pids
+  """
   @spec registered() :: [{name :: term, pid}]
   defdelegate registered, to: Swarm.Registry
 
+  @doc """
+  Publishes a message to a group. This is done via `Kernel.send/2`,
+  so GenServers and the like will receive it via `handle_info/2`.
+  """
   @spec publish(term, term) :: :ok
   defdelegate publish(group, msg), to: Swarm.Registry
 
+  @doc """
+  Calls each process in a group, and collects the results into a list.
+  The order of the results is not guaranteed. Calls are made via `GenServer.call/2`,
+  so process will need to handle a message in that format.
+  """
   @spec multi_call(term, term) :: [any()]
   defdelegate multi_call(group, msg), to: Swarm.Registry
 
+  @doc """
+  Same as `multi_call/2`, except allows for a configurable timeout. The timeout
+  is per-call, but since all calls are done in parallel, this is effectively the absolute
+  timeout as well.
+  """
   @spec multi_call(term, term, pos_integer) :: [any()]
   defdelegate multi_call(group, msg, timeout), to: Swarm.Registry
 
+  @doc """
+  This is primarily here for use by the standard library facilities for sending messages
+  to a process, e.g. by `GenServer.cast/2`. It sends a message to a process by name, using
+  `Kernel.send/2`.
+  """
   @spec send(term, term) :: :ok
   defdelegate send(name, msg), to: Swarm.Registry
 end

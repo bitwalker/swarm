@@ -73,7 +73,7 @@ defmodule Swarm.Tracker do
     # we seed our own ITC and start tracking
     debug = :sys.debug_options([])
     # wait for node list to populate
-    nodelist = wait_for_cluster([])
+    nodelist = Enum.uniq(wait_for_cluster() ++ Node.list)
     ring = Enum.reduce(nodelist, Ring.new(Node.self), fn n, r ->
       Ring.add_node(r, n)
     end)

@@ -133,6 +133,35 @@ defmodule Swarm.Tracker do
 
   defp begin_sync(sync_node, %TrackerState{nodes: nodes} = state, pending_requests \\ []) do
     receive do
+      # We want to handle nodeup/down events while syncing so that if we need to select
+      # a new node, we can do so.
+      {:nodeup, node, _info} ->
+        debug "[tracker] node up #{node}"
+        begin_sync(sync_node, %{state | nodes: [node|nodes]}, pending_requests)
+      {:nodeup, node} ->
+        debug "[tracker] node up #{node}"
+        begin_sync(sync_node, %{state | nodes: [node|nodes]}, pending_requests)
+      {:nodedown, ^sync_node, _info} ->
+        debug "[tracker] the selected sync node #{sync_node} went down, selecting new node"
+        nodes = nodes -- [sync_node]
+        new_sync_node = Enum.random(nodes)
+        debug "[tracker] selected sync node: #{new_sync_node}"
+        # Send sync request
+        GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
+        begin_sync(new_sync_node, %{state | nodes: nodes}, pending_requests)
+      {:nodedown, ^sync_node} ->
+        debug "[tracker] the selected sync node #{sync_node} went down, selecting new node"
+        nodes = nodes -- [sync_node]
+        new_sync_node = Enum.random(nodes)
+        # Send sync request
+        GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
+        begin_sync(new_sync_node, %{state | nodes: nodes}, pending_requests)
+      {:nodedown, node, _info} ->
+        debug "[tracker] node down #{node}"
+        begin_sync(sync_node, nodes -- [node], pending_requests)
+      {:nodedown, node} ->
+        debug "[tracker] node down #{node}"
+        begin_sync(sync_node, nodes -- [node], pending_requests)
       {:sync_recv, from, clock, registry} ->
         # sync with node
         debug "[tracker] received sync response, loading registry.."
@@ -215,8 +244,11 @@ defmodule Swarm.Tracker do
       {:'$gen_cast', {:sync, from}} ->
         debug "[tracker] pending sync request from #{node(from)}"
         begin_sync(sync_node, state, [from|pending_requests])
-    after 120_000 ->
-        raise "failed to sync within 2 min after joining cluster"
+    after 30_000 ->
+        debug "[tracker] failed to sync with #{sync_node} after 30s, selecting a new node and retrying"
+        new_sync_node = Enum.random(nodes -- [sync_node])
+        GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
+        begin_sync(new_sync_node, state, pending_requests)
     end
   end
 

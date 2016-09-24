@@ -50,6 +50,14 @@ defmodule Swarm.Tracker do
     :proc_lib.start_link(__MODULE__, :init, [self()], :infinity, [:link])
   end
 
+  # When the tracker starts, it does the following:
+  #    - Creates the ETS table for registry objects
+  #    - Registers itself as Swarm.Tracker
+  #    - Traps exits so we know when we need to shutdown, or when started
+  #      processes exit
+  #    - Monitors node up/down events so we can keep the hash ring up to date
+  #    - Collects the initial nodelist, and builds the hash ring and tracker state
+  #    - Tells the parent process that we've started
   def init(parent) do
     # start ETS table for registry
     :ets.new(:swarm_registry, [
@@ -89,6 +97,11 @@ defmodule Swarm.Tracker do
     end
   end
 
+  # This initial wait loop is just to ensure we give enough time for
+  # nodes in the cluster to find and connect to each other before we
+  # attempt to join the cluster.
+  # The jitter introduced is simply to prevent nodes from starting at the
+  # exact same time and racing.
   defp wait_for_cluster(nodes) do
     jitter = :rand.uniform(1_000)
     receive do
@@ -106,6 +119,10 @@ defmodule Swarm.Tracker do
     end
   end
 
+  # This is where we kick off joining and synchronizing with the cluster
+  # If there are no known remote nodes, then we become the "seed" node of
+  # the cluster, in the sense that our clock will be the initial version
+  # of the clock which all other nodes will fork from
   defp join_cluster(%TrackerState{nodes: []} = state, parent, debug) do
     debug "[tracker] joining cluster.."
     debug "[tracker] no connected nodes, proceeding without sync"
@@ -131,6 +148,29 @@ defmodule Swarm.Tracker do
     loop(state, parent, debug)
   end
 
+  # This is the receive loop for the initial synchronization phase.
+  # The primary goal of this phase is to get the tracker in sync with at
+  # least one other node in the cluster, or determine if we should be the seed
+  # node for the cluster
+  #
+  # Terminology
+  # - "source node": the node initiating the sync request
+  # - "target node": the current target of our sync request
+  #
+  # It is very complex for a number of reasons:
+  #    - Nodes can be starting up simultaneously which presents the following problems:
+  #      - Two nodes in the cluster can select each other, which in a naive implementation
+  #        would deadlock the two processes while they wait for each other to respond.
+  #      - While waiting for the target node to respond, we may receive requests from other
+  #        nodes which want to sync with us, depending on the situation we may need to tell them
+  #        to try a different node, or hold on to the request until we sync with our target, and
+  #        then pass that data along to all pending requests.
+  #      - This loop must implement both the source and target node state machines
+  #    - Our target node may go down in the middle of synchronization, if that happens,
+  #      we need to detect it, select a new target node if available, and either start the sync
+  #      process again, or become the seed node ourselves.
+  #
+  # At some point I'll put together an ASCII art diagram of the FSM
   defp begin_sync(sync_node, %TrackerState{nodes: nodes} = state, pending_requests \\ []) do
     receive do
       # We want to handle nodeup/down events while syncing so that if we need to select
@@ -162,14 +202,14 @@ defmodule Swarm.Tracker do
       {:nodedown, node} ->
         debug "[tracker] node down #{node}"
         begin_sync(sync_node, %{state | nodes: nodes -- [node]}, pending_requests)
+      # Receive a copy of the registry from our sync target
       {:sync_recv, from, clock, registry} ->
-        # sync with node
         debug "[tracker] received sync response, loading registry.."
         for entry(name: name, pid: pid, meta: meta, clock: clock) <- registry do
           ref = Process.monitor(pid)
           :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: clock))
         end
-        send(from, {:sync_ack, Node.self})
+        # update our local clock to match remote clock
         state = %{state | clock: clock}
         debug "[tracker] finished sync and sent acknowledgement to #{node(from)}"
         # clear any pending sync requests to prevent blocking
@@ -196,10 +236,11 @@ defmodule Swarm.Tracker do
         begin_sync(sync_node, state, pending_requests)
       {:'$gen_cast', {:sync, from}} when node(from) == sync_node ->
         debug "[tracker] received sync request during initial sync"
-        # the two nodes are trying to sync with each other
         cond do
+          # Well shit, we can't pass the request off to another node, so let's roll a die
+          # to choose who will sync with who.
           length(nodes) == 1 ->
-            # roll die to choose which node becomes sync node
+            # 20d, I mean why not?
             die = :rand.uniform(20)
             debug "[tracker] there is a tie between syncing nodes, breaking with die roll (#{die}).."
             send(from, {:sync_break_tie, self(), die})
@@ -262,12 +303,20 @@ defmodule Swarm.Tracker do
         {:ok, state}
     end
   end
+
+  # A remote node went down, we need to update the hash ring and handle restarting/shifting processes
+  # as needed based on the new topology
   defp handle_nodedown(node, %TrackerState{nodes: nodelist, ring: ring} = state) do
     debug "[tracker] nodedown #{node}"
     ring = Ring.remove_node(ring, node)
     handle_topology_change({:nodedown, node}, %{state | nodes: nodelist -- [node], ring: ring})
   end
 
+  # This is the primary receive loop. It's complexity is in large part due to the fact that we
+  # need to prioritize certain messages as they have implications on how things are tracked, as
+  # well as the need to ensure that one or more instances of the tracker can't deadlock each other
+  # when they need to coordinate. The implementation of these is almost entirely implemented via
+  # handle_* functions to keep the loop clearly structured.
   defp loop(state, parent, debug) do
     receive do
       # System messages take precedence, as does the parent process exiting
@@ -369,6 +418,8 @@ defmodule Swarm.Tracker do
     end
   end
 
+  # This is the callback for when a nodeup/down event occurs after the tracker has entered
+  # the main receive loop. Topology changes are handled a bit differently during startup.
   defp handle_topology_change({type, remote_node}, %TrackerState{} = state) do
     debug "[tracker] topology change (#{type} for #{remote_node})"
     current_node = Node.self
@@ -414,6 +465,7 @@ defmodule Swarm.Tracker do
     {:ok, %{state | clock: clock}}
   end
 
+  # This is the callback for tracker events which are being replicated from other nodes in the cluster
   defp handle_event({:track, name, pid, meta}, _from, rclock, %TrackerState{clock: clock} = state) do
     debug "[tracker] event: track #{inspect {name, pid, meta}}"
     cond do
@@ -518,6 +570,7 @@ defmodule Swarm.Tracker do
     end
   end
 
+  # This is the handler for local operations on the tracker which require a response.
   defp handle_call({:track, name, pid, meta}, _from, %TrackerState{} = state) do
     debug "[tracker] call: track #{inspect {name, pid, meta}}"
     add_registration(state, name, pid, meta)
@@ -560,6 +613,7 @@ defmodule Swarm.Tracker do
     end
   end
 
+  # This is the handler for local operations on the tracker which are asynchronous
   defp handle_cast({:untrack, pid}, %TrackerState{} = state) do
     debug "[tracker] call: untrack #{inspect pid}"
     remove_registration_by_pid(state, pid)
@@ -572,6 +626,10 @@ defmodule Swarm.Tracker do
     remove_meta_by_pid(state, key, pid)
   end
 
+  # This is only ever called if a registration needs to be sent to a remote node
+  # and that node went down in the middle of the call to it's Swarm process.
+  # We need to process the nodeup/down events by re-entering the receive loop first,
+  # so we send ourselves a message to retry, this is the handler for that message
   defp handle_retry({:track, _, _, _, _} = event, from, state) do
     case handle_call(event, from, state) do
       {:reply, reply, state} ->
@@ -624,6 +682,58 @@ defmodule Swarm.Tracker do
         {:ok, state}
     end
   end
+
+  # Sys module callbacks
+
+  # Handle resuming this process after it's suspended by :sys
+  # We're making a bit of an assumption here that it won't be suspended
+  # prior to entering the receive loop. This is something we (probably) could
+  # fix by storing the current phase of the startup the process is in, but I'm not sure.
+  def system_continue(parent, debug, state) do
+    loop(state, parent, debug)
+  end
+
+  # Handle system shutdown gracefully
+  def system_terminate(_reason, :application_controller, _debug, _state) do
+    # OTP-5811 Don't send an error report if it's the system process
+    # application_controller which is terminating - let init take care
+    # of it instead
+    :ok
+  end
+  def system_terminate(:normal, _parent, _debug, _state) do
+    exit(:normal)
+  end
+  def system_terminate(reason, _parent, debug, state) do
+    :error_logger.format('** ~p terminating~n
+                          ** Server state was: ~p~n
+                          ** Reason: ~n** ~p~n', [__MODULE__, state, reason])
+    :sys.print_log(debug)
+    exit(reason)
+  end
+
+  # Used for fetching the current process state
+  def system_get_state(state) do
+    {:ok, state}
+  end
+
+  # Called when someone asks to replace the current process state
+  # Required, but you really really shouldn't do this.
+  def system_replace_state(state_fun, state) do
+    new_state = state_fun.(state)
+    {:ok, new_state, new_state}
+  end
+
+  # Called when the system is upgrading this process
+  def system_code_change(misc, _module, _old, _extra) do
+    {:ok, misc}
+  end
+
+  # Used for tracing with sys:handle_debug
+  #defp write_debug(_dev, event, name) do
+  #  Swarm.Logger.debug("[tracker] #{inspect name}: #{inspect event}")
+  #end
+
+  ## Internal helpers
 
   defp broadcast_event([], _clock, _event),  do: :ok
   defp broadcast_event(nodes, clock, event), do: :rpc.sbcast(nodes, __MODULE__, {:event, self(), clock, event})
@@ -690,47 +800,7 @@ defmodule Swarm.Tracker do
     end
   end
 
-  # :sys callbacks
-
-  def system_continue(parent, debug, state) do
-    loop(state, parent, debug)
-  end
-
-  def system_terminate(_reason, :application_controller, _debug, _state) do
-    # OTP-5811 Don't send an error report if it's the system process
-    # application_controller which is terminating - let init take care
-    # of it instead
-    :ok
-  end
-  def system_terminate(:normal, _parent, _debug, _state) do
-    exit(:normal)
-  end
-  def system_terminate(reason, _parent, debug, state) do
-    :error_logger.format('** ~p terminating~n
-                          ** Server state was: ~p~n
-                          ** Reason: ~n** ~p~n', [__MODULE__, state, reason])
-    :sys.print_log(debug)
-    exit(reason)
-  end
-
-  def system_get_state(state) do
-    {:ok, state}
-  end
-
-  def system_replace_state(state_fun, state) do
-    new_state = state_fun.(state)
-    {:ok, new_state, new_state}
-  end
-
-  def system_code_change(misc, _module, _old, _extra) do
-    {:ok, misc}
-  end
-
-  # Used for tracing with sys:handle_debug
-  #defp write_debug(_dev, event, name) do
-  #  Swarm.Logger.debug("[tracker] #{inspect name}: #{inspect event}")
-  #end
-
+  # Wrap handle_call to behave more like a GenServer would
   defp do_handle_call(call, from, state) do
     case handle_call(call, from, state) do
       {:reply, reply, state} ->

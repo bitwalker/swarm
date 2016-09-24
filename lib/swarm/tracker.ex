@@ -187,12 +187,12 @@ defmodule Swarm.Tracker do
             debug "[tracker] selected sync node: #{new_sync_node}"
             # Send sync request
             GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
-            begin_sync(new_sync_node, %{state | nodes: nodes}, pending_requests)
+            begin_sync(new_sync_node, %{state | nodes: nodes}, pending_requests -- [sync_node])
         end
       # Keep the hash ring up to date if other nodes go down
       {:nodedown, node} ->
         debug "[tracker] node down #{node}"
-        begin_sync(sync_node, %{state | nodes: nodes -- [node]}, pending_requests)
+        begin_sync(sync_node, %{state | nodes: nodes -- [node]}, pending_requests -- [sync_node])
       # Receive a copy of the registry from our sync target
       {:sync_recv, from, clock, registry} ->
         debug "[tracker] received sync response, loading registry.."
@@ -241,12 +241,12 @@ defmodule Swarm.Tracker do
                 case nodes -- [sync_node] do
                   [] ->
                     debug "[tracker] sync with #{sync_node} cancelled: nodedown, no other nodes available, so becoming seed"
-                    resolve_pending_sync_requests(%{state | nodes: []}, pending_requests)
+                    resolve_pending_sync_requests(%{state | nodes: []}, pending_requests -- [sync_node])
                   nodes ->
                     debug "[tracker] sync with #{sync_node} cancelled: nodedown, retrying with a new node"
                     sync_node = Enum.random(nodes)
                     GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
-                    begin_sync(sync_node, %{state | nodes: nodes}, pending_requests)
+                    begin_sync(sync_node, %{state | nodes: nodes}, pending_requests -- [sync_node])
                 end
               {:sync_break_tie, from, die2} when die2 > die or (die2 == die and node(from) > node(self)) ->
                 debug "[tracker] #{node(from)} won the die roll (#{die2} vs #{die}), waiting for payload.."
@@ -297,6 +297,8 @@ defmodule Swarm.Tracker do
   defp resolve_pending_sync_requests(%TrackerState{} = state, pending) do
     # clear any pending sync requests to prevent blocking
     registry = :ets.tab2list(:swarm_registry)
+    # filter out pending requests which are no longer connected
+    pending = Enum.filter(fn p -> p in Node.list(:connected) end)
     new_state = Enum.reduce(pending, state, fn pid, acc ->
       pending_node = node(pid)
       debug "[tracker] clearing pending sync request for #{pending_node}"
@@ -492,6 +494,13 @@ defmodule Swarm.Tracker do
       {:nodedown, node} ->
         {:ok, state} = handle_nodedown(node, state)
         loop(state, parent, debug)
+      {:sync_break_tie, from, die} ->
+        # break the tie (we will always win) and send our registry
+        send(from, {:sync_break_tie, self(), die+1})
+        {lclock, rclock} = ITC.fork(state.clock)
+        send(from, {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)})
+        wait_for_sync_ack(node(from))
+        loop(%{state | clock: lclock}, parent, debug)
       :anti_entropy ->
         {:ok, state} = handle_anti_entropy(state)
         loop(state, parent, debug)

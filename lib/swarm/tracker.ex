@@ -340,6 +340,14 @@ defmodule Swarm.Tracker do
       {:nodedown, ^sync_node} ->
         warn "[tracker] [anti-entropy] sync with #{sync_node} failed: nodedown, aborting this pass"
         state
+      {:sync, ^sync_node} ->
+        debug "[tracker] [anti-entropy] received sync request from #{sync_node}, sending registry.."
+        send({__MODULE__, sync_node}, {:sync_recv, self(), ITC.peek(state.clock), :ets.tab2list(:swarm_registry)})
+        complete_anti_entropy(sync_node, state)
+      {:sync, node} ->
+        debug "[tracker] [anti-entropy] received sync request from #{node}, sending registry.."
+        send({__MODULE__, sync_node}, {:sync_recv, self(), ITC.peek(state.clock), :ets.tab2list(:swarm_registry)})
+        complete_anti_entropy(sync_node, state)
       {:sync_recv, from, _rclock, registry} ->
         debug "[tracker] [anti-entropy] received registry from #{sync_node}, checking.."
         # let remote node know we've got the registry

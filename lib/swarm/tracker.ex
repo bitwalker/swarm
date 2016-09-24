@@ -280,9 +280,16 @@ defmodule Swarm.Tracker do
         begin_sync(sync_node, state, [from|pending_requests])
     after 30_000 ->
         debug "[tracker] failed to sync with #{sync_node} after 30s, selecting a new node and retrying"
-        new_sync_node = Enum.random(nodes -- [sync_node])
-        GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
-        begin_sync(new_sync_node, state, pending_requests)
+        case nodes -- [sync_node] do
+          [] ->
+            debug "[tracker] no other nodes to sync with, becoming seed node"
+            resolve_pending_sync_requests(%{state | clock: ITC.seed()}, pending_requests)
+          nodes ->
+            new_sync_node = Enum.random(nodes)
+            debug "[tracker] selected new sync node #{new_sync_node}"
+            GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
+            begin_sync(new_sync_node, nodes, pending_requests)
+        end
     end
   end
 

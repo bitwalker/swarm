@@ -776,7 +776,7 @@ defmodule Swarm.Tracker do
     {lclock, rclock} = ITC.fork(clock)
     send(from, {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)})
     wait_for_sync_ack(node(from))
-    {:ok, %{state | clock: lclock}}
+    {:noreply, %{state | clock: lclock}}
   end
 
   # This is only ever called if a registration needs to be sent to a remote node

@@ -298,7 +298,7 @@ defmodule Swarm.Tracker do
     # clear any pending sync requests to prevent blocking
     registry = :ets.tab2list(:swarm_registry)
     # filter out pending requests which are no longer connected
-    pending = Enum.filter(fn p -> p in Node.list(:connected) end)
+    pending = Enum.filter(pending, fn p -> p in Node.list(:connected) end)
     new_state = Enum.reduce(pending, state, fn pid, acc ->
       pending_node = node(pid)
       debug "[tracker] clearing pending sync request for #{pending_node}"

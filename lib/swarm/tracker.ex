@@ -124,7 +124,7 @@ defmodule Swarm.Tracker do
     debug "[tracker] no connected nodes, proceeding without sync"
     # If no other nodes are connected, start anti-entropy
     # and seed the clock
-    :timer.send_after(60_000, self(), :anti_entropy)
+    :timer.send_after(5 * 60_000, self(), :anti_entropy)
     loop(%{state | clock: ITC.seed()}, parent, debug)
   end
   defp join_cluster(%TrackerState{nodes: nodelist} = state, parent, debug) do
@@ -196,6 +196,9 @@ defmodule Swarm.Tracker do
       # Receive a copy of the registry from our sync target
       {:sync_recv, from, clock, registry} ->
         debug "[tracker] received sync response, loading registry.."
+        # let remote node know we've got the registry
+        send(from, {:sync_ack, Node.self})
+        # load target registry
         for entry(name: name, pid: pid, meta: meta, clock: clock) <- registry do
           ref = Process.monitor(pid)
           :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: clock))
@@ -204,27 +207,24 @@ defmodule Swarm.Tracker do
         state = %{state | clock: clock}
         debug "[tracker] finished sync and sent acknowledgement to #{node(from)}"
         # clear any pending sync requests to prevent blocking
-        state = Enum.reduce(pending_requests, state, fn pid, acc ->
-          debug "[tracker] clearing pending sync request for #{node(pid)}"
-          {lclock, rclock} = ITC.fork(acc.clock)
-          send(pid, {:sync_recv, self(), rclock, registry})
-          receive do
-            {:sync_ack, ^pid} ->
-              debug "[tracker] sync request for #{node(pid)} completed"
-          after
-            5_000 ->
-              warn "[tracker] did not receive acknowledgement for sync response from #{node(pid)}"
-          end
-          %{acc | :clock => lclock}
-        end)
-        debug "[tracker] pending sync requests cleared"
-        state
-      {:sync_err, _from} ->
+        resolve_pending_sync_requests(state, pending_requests)
+      # Something weird happened during sync, so try a different node,
+      # with this implementation, we *could* end up selecting the same node
+      # again, but that's fine as this is effectively a retry
+      {:sync_err, _from} when length(nodes) > 0 ->
         debug "[tracker] sync error, choosing a new node to sync with"
         # we need to choose a different node to sync with and try again
         sync_node = Enum.random(nodes)
         GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
         begin_sync(sync_node, state, pending_requests)
+      # Something went wrong during sync, but there are no other nodes to sync with,
+      # not even the original sync node (which probably implies it shutdown or crashed),
+      # so we're the sync node now
+      {:sync_err, _from} ->
+        debug "[tracker] sync error, and no other available sync targets, becoming seed node"
+        resolve_pending_sync_requests(%{state | clock: ITC.seed()}, pending_requests)
+      # Incoming sync request from our target node, in other words, A is trying to sync with B,
+      # and B is trying to sync with A - we need to break the deadlock
       {:'$gen_cast', {:sync, from}} when node(from) == sync_node ->
         debug "[tracker] received sync request during initial sync"
         cond do
@@ -286,6 +286,163 @@ defmodule Swarm.Tracker do
     end
   end
 
+  @spec resolve_pending_sync_requests(TrackerState.t, [pid()]) :: TrackerState.t
+  defp resolve_pending_sync_requests(%TrackerState{} = state, pending) do
+    # clear any pending sync requests to prevent blocking
+    registry = :ets.tab2list(:swarm_registry)
+    new_state = Enum.reduce(pending, state, fn pid, acc ->
+      pending_node = node(pid)
+      debug "[tracker] clearing pending sync request for #{pending_node}"
+      {lclock, rclock} = ITC.fork(acc.clock)
+      send(pid, {:sync_recv, self(), rclock, registry})
+      receive do
+        {:nodedown, ^pending_node} ->
+          debug "[tracker] sync request from #{pending_node} cancelled: nodedown"
+          %{state | nodes: state.nodes -- [pending_node]}
+        {:sync_ack, ^pid} ->
+          debug "[tracker] sync request for #{node(pid)} completed"
+          %{acc | clock: lclock}
+      after
+        5_000 ->
+          warn "[tracker] did not receive acknowledgement for sync response from #{node(pid)}"
+          acc
+      end
+    end)
+    debug "[tracker] pending sync requests cleared"
+    new_state
+  end
+
+  defp handle_anti_entropy(%TrackerState{nodes: []} = state) do
+    :timer.send_after(5 * 60_000, self(), :anti_entropy)
+    {:ok, state}
+  end
+  defp handle_anti_entropy(%TrackerState{nodes: nodes} = state) do
+    sync_node = Enum.random(nodes)
+    debug "[tracker] [anti-entropy] syncing with #{sync_node}"
+    GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
+    {elapsed, state} = :timer.tc(fn -> complete_anti_entropy(sync_node, state) end)
+    debug "[tracker] [anti-entropy] completed in: #{Float.round(elapsed/1_000, 3)}ms"
+    :timer.send_after(5 * 60_000, self(), :anti_entropy)
+    {:ok, state}
+  end
+
+  defp complete_anti_entropy(sync_node, state) do
+    receive do
+      {:nodedown, ^sync_node} ->
+        warn "[tracker] [anti-entropy] sync with #{sync_node} failed: nodedown, aborting this pass"
+        state
+      {:sync_recv, from, _rclock, registry} ->
+        debug "[tracker] [anti-entropy] received registry from #{sync_node}, checking.."
+        # let remote node know we've got the registry
+        send(from, {:sync_ack, Node.self})
+        # map over the registry and check that all local entries are correct
+        Enum.reduce(registry, state, fn entry(name: rname, pid: rpid, meta: rmeta, clock: rclock) = rreg, %TrackerState{clock: clock} = state ->
+          case :ets.lookup(:swarm_registry, rname) do
+            [] ->
+              # missing local registration
+              cond do
+                ITC.leq(rclock, clock) ->
+                  # our clock is ahead, so we'll do nothing
+                  debug "[tracker] [anti-entropy] local is missing #{inspect rname}, but local clock is dominant, ignoring"
+                  state
+                :else ->
+                  # our clock is behind, so add the registration
+                  debug "[tracker] [anti-entropy] local is missing #{inspect rname}, adding.."
+                  ref = Process.monitor(rpid)
+                  :ets.insert(:swarm_registry, entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
+                  %{state | clock: ITC.event(clock)}
+              end
+            [entry(pid: ^rpid, meta: ^rmeta, clock: ^rclock)] ->
+              # this entry matches, nothing to do
+              state
+            [entry(pid: ^rpid, meta: ^rmeta, clock: _)] ->
+              # the clocks differ, but the data is identical, so let's update it so they're the same
+              :ets.update_element(:swarm_registry, rname, [{entry(:clock)+1, rclock}])
+            [entry(pid: ^rpid, meta: lmeta, clock: lclock)] ->
+              # the metadata differs, we need to merge it
+              cond do
+                ITC.leq(lclock, rclock) ->
+                  # the remote clock dominates, so merge favoring data from the remote registry
+                  new_meta = Map.merge(lmeta, rmeta)
+                  :ets.update_element(:swarm_registry, rname, [{entry(:meta)+1, new_meta}])
+                  %{state | clock: ITC.event(clock)}
+                ITC.leq(rclock, lclock) ->
+                  # the local clock dominates, so merge favoring data from the local registry
+                  new_meta = Map.merge(rmeta, lmeta)
+                  :ets.update_element(:swarm_registry, rname, [{entry(:meta)+1, new_meta}])
+                  %{state | clock: ITC.event(clock)}
+                :else ->
+                  # the clocks conflict, but there's nothing we can do, so warn and then keep the local
+                  # view for the time being
+                  warn "[tracker] [anti-entropy] local and remote metadata for #{inspect rname} conflicts, keeping local for now"
+                  state
+              end
+            [entry(pid: lpid, clock: lclock) = lreg] ->
+              # there are two different processes for the same name, we need to resolve
+              cond do
+                ITC.leq(lclock, rclock) ->
+                  # the remote registration is newer
+                  resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
+                ITC.leq(rclock, lclock) ->
+                  # the local registration is newer
+                  debug "[tracker] [anti-entropy] remote view of #{inspect rname} is outdated, resolving.."
+                  resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
+                :else ->
+                  # the clocks conflict, determine which registration is correct based on current topology
+                  # and resolve the conflict
+                  rpid_node    = node(rpid)
+                  lpid_node    = node(lpid)
+                  current_node = Node.self
+                  target_node  = Ring.key_to_node(state.ring, rname)
+                  cond do
+                    target_node == rpid_node and lpid_node != rpid_node ->
+                      debug "[tracker] [anti-entropy] remote and local view of #{inspect rname} conflict, but remote is correct, resolving.."
+                      resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
+                    target_node == lpid_node and rpid_node != lpid_node ->
+                      debug "[tracker] [anti-entropy] remote and local view of #{inspect rname} conflict, but local is correct, resolving.."
+                      resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
+                    lpid_node == rpid_node && rpid > lpid ->
+                      debug "[tracker] [anti-entropy] remote and local view of #{inspect rname} conflict, " <>
+                        "but the remote view is more recent, resolving.."
+                      resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
+                    lpid_node == rpid_node && lpid > rpid ->
+                      debug "[tracker] [anti-entropy] remote and local view of #{inspect rname} conflict, " <>
+                        "but the local view is more recent, resolving.."
+                      resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
+                    :else ->
+                      # the registrations are inconsistent with each other, and cannot be resolved
+                      warn "[tracker] [anti-entropy] remote and local view of #{inspect rname} conflict, " <>
+                        "but cannot be resolved"
+                      state
+                  end
+              end
+          end
+        end)
+    end
+  end
+
+  # Used during anti-entropy checks to remove local registrations and replace them with the remote version
+  defp resolve_incorrect_local_reg(_remote_node, entry(pid: lpid) = lreg, entry(name: rname, pid: rpid, meta: rmeta, clock: rclock), state) do
+    # the remote registration is correct
+    {:ok, state} = remove_registration(state, lreg)
+    send(lpid, {:swarm, :die})
+    # add the remote registration
+    ref = Process.monitor(rpid)
+    clock = ITC.event(state.clock)
+    :ets.insert(:swarm_registry, entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
+    %{state | clock: clock}
+  end
+
+  # Used during anti-entropy checks to remove remote registrations and replace them with the local version
+  defp resolve_incorrect_remote_reg(remote_node, entry(pid: lpid, meta: lmeta), entry(name: rname, pid: rpid), state) do
+    send({__MODULE__, remote_node}, {:untrack, rpid})
+    send(rpid, {:swarm, :die})
+    send({__MODULE__, remote_node}, {:track, rname, lpid, lmeta})
+    state
+  end
+
+  # A new node has been added to the cluster, we need to update the hash ring and handle shifting
+  # processes to new nodes based on the new topology.
   defp handle_nodeup(node, %TrackerState{nodes: nodelist, ring: ring} = state) do
     case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
       {:ok, _} ->
@@ -329,11 +486,7 @@ defmodule Swarm.Tracker do
         {:ok, state} = handle_nodedown(node, state)
         loop(state, parent, debug)
       :anti_entropy ->
-        debug "[tracker] performing anti entropy"
-        loop(state, parent, debug)
-      # Received from another node requesting a sync
-      {from, :sync} ->
-        {:ok, state} = handle_sync(from, state)
+        {:ok, state} = handle_anti_entropy(state)
         loop(state, parent, debug)
       # Received a handoff request from a node
       {from, {:handoff, name, m, f, a, handoff_state, rclock}} ->
@@ -369,25 +522,7 @@ defmodule Swarm.Tracker do
     end
   end
 
-  defp wait_for_sync_ack(remote_node) do
-    receive do
-      {:sync_ack, ^remote_node} ->
-        debug "[tracker] sync with #{remote_node} complete"
-      after 1_000 ->
-        debug "[tracker] waiting for sync acknolwedgment.."
-        wait_for_sync_ack(remote_node)
-    end
-  end
-
-  defp handle_sync(from, %TrackerState{clock: clock} = state) do
-    debug "[tracker] received sync request from #{node(from)}"
-    {lclock, rclock} = ITC.fork(clock)
-    reply = {:ok, self(), rclock, :ets.tab2list(:swarm_registry)}
-    send(from, {node(from), Node.self, reply})
-    wait_for_sync_ack(node(from))
-    {:ok, %{state | clock: lclock}}
-  end
-
+  # This is the callback for when a process is being handed off from a remote node to this node.
   defp handle_handoff(_from, name, m, f, a, handoff_state, _rclock, %TrackerState{clock: clock} = state) do
     try do
       {:ok, pid} = apply(m, f, a)
@@ -612,6 +747,13 @@ defmodule Swarm.Tracker do
   defp handle_cast({:remove_meta, key, pid}, %TrackerState{} = state) do
     remove_meta_by_pid(state, key, pid)
   end
+  defp handle_cast({:sync, from}, %TrackerState{clock: clock} = state) do
+    debug "[tracker] received sync request from #{node(from)}"
+    {lclock, rclock} = ITC.fork(clock)
+    send(from, {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)})
+    wait_for_sync_ack(node(from))
+    {:ok, %{state | clock: lclock}}
+  end
 
   # This is only ever called if a registration needs to be sent to a remote node
   # and that node went down in the middle of the call to it's Swarm process.
@@ -797,4 +939,19 @@ defmodule Swarm.Tracker do
         {:ok, state}
     end
   end
+
+  # Block until an acknowledgement is received from the remote node,
+  # or until the remote node goes down
+  defp wait_for_sync_ack(remote_node) do
+    receive do
+      {:nodedown, ^remote_node} ->
+        warn "[tracker] sync request from #{remote_node} cancelled, node went down"
+      {:sync_ack, ^remote_node} ->
+        debug "[tracker] sync with #{remote_node} complete"
+    after 1_000 ->
+        debug "[tracker] waiting for sync acknolwedgment.."
+        wait_for_sync_ack(remote_node)
+    end
+  end
+
 end

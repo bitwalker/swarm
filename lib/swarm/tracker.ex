@@ -74,7 +74,7 @@ defmodule Swarm.Tracker do
     # Tell the supervisor we've started
     :proc_lib.init_ack(parent, {:ok, self()})
     # Start monitoring nodes
-    :ok = :net_kernel.monitor_nodes(true, [node_type: :all])
+    :ok = :net_kernel.monitor_nodes(true, [])
     debug "[tracker] started"
     # Before we can be considered "up", we must sync with
     # some other node in the cluster, if they exist, otherwise
@@ -105,12 +105,8 @@ defmodule Swarm.Tracker do
   defp wait_for_cluster(nodes) do
     jitter = :rand.uniform(1_000)
     receive do
-      {:nodeup, node, _info} ->
-        wait_for_cluster([node|nodes])
       {:nodeup, node} ->
         wait_for_cluster([node|nodes])
-      {:nodedown, node, _info} ->
-        wait_for_cluster(nodes -- [node])
       {:nodedown, node} ->
         wait_for_cluster(nodes -- [node])
     after
@@ -175,30 +171,25 @@ defmodule Swarm.Tracker do
     receive do
       # We want to handle nodeup/down events while syncing so that if we need to select
       # a new node, we can do so.
-      {:nodeup, node, _info} ->
-        debug "[tracker] node up #{node}"
-        begin_sync(sync_node, %{state | nodes: [node|nodes]}, pending_requests)
       {:nodeup, node} ->
         debug "[tracker] node up #{node}"
         begin_sync(sync_node, %{state | nodes: [node|nodes]}, pending_requests)
-      {:nodedown, ^sync_node, _info} ->
-        debug "[tracker] the selected sync node #{sync_node} went down, selecting new node"
-        nodes = nodes -- [sync_node]
-        new_sync_node = Enum.random(nodes)
-        debug "[tracker] selected sync node: #{new_sync_node}"
-        # Send sync request
-        GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
-        begin_sync(new_sync_node, %{state | nodes: nodes}, pending_requests)
+      # If our target node goes down, we need to select a new target or become the seed node
       {:nodedown, ^sync_node} ->
         debug "[tracker] the selected sync node #{sync_node} went down, selecting new node"
-        nodes = nodes -- [sync_node]
-        new_sync_node = Enum.random(nodes)
-        # Send sync request
-        GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
-        begin_sync(new_sync_node, %{state | nodes: nodes}, pending_requests)
-      {:nodedown, node, _info} ->
-        debug "[tracker] node down #{node}"
-        begin_sync(sync_node, %{state | nodes: nodes -- [node]}, pending_requests)
+        case nodes -- [sync_node] do
+          [] ->
+            # there are no other nodes to select, we'll be the seed
+            debug "[tracker] no other available nodes, becoming seed node"
+            %{state | nodes: [], clock: ITC.seed()}
+          nodes ->
+            new_sync_node = Enum.random(nodes)
+            debug "[tracker] selected sync node: #{new_sync_node}"
+            # Send sync request
+            GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
+            begin_sync(new_sync_node, %{state | nodes: nodes}, pending_requests)
+        end
+      # Keep the hash ring up to date if other nodes go down
       {:nodedown, node} ->
         debug "[tracker] node down #{node}"
         begin_sync(sync_node, %{state | nodes: nodes -- [node]}, pending_requests)
@@ -245,6 +236,18 @@ defmodule Swarm.Tracker do
             debug "[tracker] there is a tie between syncing nodes, breaking with die roll (#{die}).."
             send(from, {:sync_break_tie, self(), die})
             receive do
+              {:nodedown, ^sync_node} ->
+                # welp, guess we'll try a new node
+                case nodes -- [sync_node] do
+                  [] ->
+                    debug "[tracker] sync with #{sync_node} cancelled: nodedown, no other nodes available, so becoming seed"
+                    resolve_pending_sync_requests(%{state | nodes: []}, pending_requests)
+                  nodes ->
+                    debug "[tracker] sync with #{sync_node} cancelled: nodedown, retrying with a new node"
+                    sync_node = Enum.random(nodes)
+                    GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
+                    begin_sync(sync_node, %{state | nodes: nodes}, pending_requests)
+                end
               {:sync_break_tie, from, die2} when die2 > die or (die2 == die and node(from) > node(self)) ->
                 debug "[tracker] #{node(from)} won the die roll (#{die2} vs #{die}), waiting for payload.."
                 # The other node won the die roll, either by a greater die roll, or the absolute
@@ -256,24 +259,14 @@ defmodule Swarm.Tracker do
                 {clock, rclock} = ITC.fork(ITC.seed())
                 send(from, {:sync_recv, self(), rclock, []})
                 receive do
+                  {:nodedown, ^sync_node} ->
+                    # we sent the registry, but the node went down before the ack, just continue..
+                    :ok
                   {:sync_ack, _} ->
                     debug "[tracker] sync request for #{node(from)} completed"
                 end
                 # clear any pending sync requests to prevent blocking
-                Enum.reduce(pending_requests, %{state | clock: clock}, fn pid, acc ->
-                  debug "[tracker] clearing pending sync request for #{node(pid)}"
-                  {lclock, rclock} = ITC.fork(acc.clock)
-                  send(pid, {:sync_recv, self(), rclock, []})
-                  receive do
-                    {:sync_ack, ^pid} ->
-                      debug "[tracker] sync request for #{node(pid)} completed"
-                      %{acc | clock: lclock}
-                  after
-                    5_000 ->
-                      warn "[tracker] did not receive acknowledgement for sync response from #{node(pid)}"
-                      acc
-                  end
-                end)
+                resolve_pending_sync_requests(%{state | clock: clock}, pending_requests)
             end
           :else ->
             debug "[tracker] rejecting sync request since we're still in initial sync"
@@ -329,14 +322,8 @@ defmodule Swarm.Tracker do
       {:EXIT, _child, _reason} ->
         # a process started by the tracker died, ignore
         loop(state, parent, debug)
-      {:nodeup, node, _info} ->
-        {:ok, state} = handle_nodeup(node, state)
-        loop(state, parent, debug)
       {:nodeup, node} ->
         {:ok, state} = handle_nodeup(node, state)
-        loop(state, parent, debug)
-      {:nodedown, node, _info} ->
-        {:ok, state} = handle_nodedown(node, state)
         loop(state, parent, debug)
       {:nodedown, node} ->
         {:ok, state} = handle_nodedown(node, state)

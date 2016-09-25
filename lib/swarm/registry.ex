@@ -2,6 +2,9 @@ defmodule Swarm.Registry do
   @moduledoc false
   import Swarm.Entry
   alias Swarm.Tracker
+  use GenServer
+
+  ## Public API
 
   defdelegate register(name, pid), to: Tracker, as: :track
   defdelegate register(name, module, fun, args), to: Tracker, as: :track
@@ -23,27 +26,16 @@ defmodule Swarm.Registry do
   end
 
   @spec join(term, pid) :: :ok
-  def join(group, pid) do
-    Tracker.add_meta(group, true, pid)
-  end
+  def join(group, pid), do: Tracker.add_meta(group, true, pid)
 
   @spec leave(term, pid) :: :ok
-  def leave(group, pid) do
-    Tracker.remove_meta(group, pid)
-  end
+  defdelegate leave(group, pid), to: Tracker, as: :remove_meta
 
   @spec members(group :: term) :: [pid]
-  def members(group) do
-    :ets.tab2list(:swarm_registry)
-    |> Enum.filter_map(fn entry(meta: %{^group => _}) -> true; _ -> false end,
-                       fn entry(pid: pid) -> pid end)
-  end
+  def members(group), do: Enum.map(get_by_meta(group), fn entry(pid: pid) -> pid end)
 
   @spec registered() :: [{name :: term, pid}]
-  def registered() do
-    :ets.tab2list(:swarm_registry)
-    |> Enum.map(fn entry(name: name, pid: pid) -> {name, pid} end)
-  end
+  def registered(), do: all()
 
   @spec publish(term, term) :: :ok
   def publish(group, msg) do
@@ -93,5 +85,34 @@ defmodule Swarm.Registry do
       []    -> :undefined
       [obj] -> obj
     end
+  end
+
+  def get_by_meta(key) do
+    case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => :'$4'}, clock: :'$5')) do
+      []    -> :undefined
+      [obj] -> obj
+    end
+  end
+
+  def get_by_meta(key, value) do
+    case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => value}, clock: :'$4')) do
+      []    -> :undefined
+      [obj] -> obj
+    end
+  end
+
+  ## GenServer Implementation
+
+  def start_link(), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
+  def init(_) do
+    # start ETS table for registry
+    t = :ets.new(:swarm_registry, [
+          :set,
+          :named_table,
+          :public,
+          keypos: 2,
+          read_concurrency: true,
+          write_concurrency: true])
+    {:ok, t}
   end
 end

@@ -17,6 +17,7 @@ defmodule Swarm.Supervisor do
 
     children = [
       supervisor(Task.Supervisor, [[name: Swarm.TaskSupervisor]]),
+      worker(Swarm.Registry, []),
       worker(Swarm.Tracker, []),
       worker(cluster_strategy, []),
     ]

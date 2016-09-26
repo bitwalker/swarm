@@ -785,20 +785,20 @@ defmodule Swarm.Tracker do
               debug = handle_debug(debug, {:out, {:swarm, :begin_handoff}, pid})
               case GenServer.call(pid, {:swarm, :begin_handoff}) do
                 :ignore ->
-                  log "#{inspect pid} has requested to be ignored"
+                  log "#{inspect name} has requested to be ignored"
                   lclock
                 {:resume, handoff_state} ->
-                  log "#{inspect pid} has requested to be resumed"
+                  log "#{inspect name} has requested to be resumed"
                   {:noreply, state} = remove_registration(%{state | clock: lclock}, obj)
                   send(pid, {:swarm, :die})
                   debug = handle_debug(debug, {:out, {:swarm, :die}, pid})
-                  log "sending handoff to #{remote_node}"
+                  log "sending handoff for #{inspect name} to #{remote_node}"
                   out_msg = {self(), {:handoff, name, m, f, a, handoff_state, ITC.peek(state.clock)}}
                   send({__MODULE__, remote_node}, out_msg)
                   debug = handle_debug(debug, {:out, out_msg, {__MODULE__, remote_node}})
                   state.clock
                 :restart ->
-                  log "#{inspect pid} has requested to be restarted"
+                  log "#{inspect name} has requested to be restarted"
                   {:noreply, state} = remove_registration(%{state | clock: lclock}, obj)
                   send(pid, {:swarm, :die})
                   debug = handle_debug(debug, {:out, {:swarm, :die}, pid})
@@ -807,7 +807,7 @@ defmodule Swarm.Tracker do
               end
             catch
               _, err ->
-                warn "handoff failed for #{inspect pid}: #{inspect err}"
+                warn "handoff failed for #{inspect name}: #{inspect err}"
                 lclock
             end
         end
@@ -1086,12 +1086,12 @@ defmodule Swarm.Tracker do
         state = %{state | nodes: nodes -- [pid_node], ring: ring}
         case Ring.key_to_node(ring, name) do
           ^current_node ->
-            log "restarting pid #{inspect pid} on #{current_node}"
+            log "restarting #{inspect name} (#{inspect pid}) on #{current_node}"
             {:noreply, state}  = remove_registration(state, obj)
             {:reply, _, state} = handle_call({:track, name, m, f, a}, nil, state)
             {:tracking, state, parent, debug}
           other_node ->
-            log "pid belongs on #{other_node}"
+            log "#{inspect name} (#{inspect pid}) is owned by #{other_node}, skipping"
             {:noreply, state} = remove_registration(state, obj)
             {:tracking, state, parent, debug}
         end

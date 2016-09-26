@@ -20,7 +20,7 @@ defmodule Swarm.Ring do
 
   @hash_range trunc(:math.pow(2, 32) - 1)
 
-  defstruct ring: :gb_trees.empty
+  defstruct ring: :gb_trees.empty, nodes: []
 
   @doc """
   Creates a new hash ring structure, with no nodes added yet
@@ -47,12 +47,18 @@ defmodule Swarm.Ring do
   """
   @spec add_node(__MODULE__.t, node(), pos_integer) :: __MODULE__.t
   def add_node(%__MODULE__{} = ring, node, weight \\ 128) do
-    Enum.reduce(1..weight, ring, fn i, %__MODULE__{ring: r} = acc ->
-      n = :crypto.hash(:sha256, :erlang.term_to_binary({node, i}))
+    cond do
+      Enum.member?(ring.nodes, node) ->
+        ring
+      :else ->
+        ring = %{ring | nodes: [node|ring.nodes]}
+        Enum.reduce(1..weight, ring, fn i, %__MODULE__{ring: r} = acc ->
+          n = :crypto.hash(:sha256, :erlang.term_to_binary({node, i}))
           |> :crypto.bytes_to_integer()
           |> :erlang.phash2(@hash_range)
-      %{acc | ring: :gb_trees.insert(n, node, r)}
-    end)
+          %{acc | ring: :gb_trees.insert(n, node, r)}
+        end)
+    end
   end
 
   @doc """
@@ -60,10 +66,15 @@ defmodule Swarm.Ring do
   """
   @spec remove_node(__MODULE__.t, node()) :: __MODULE__.t
   def remove_node(%__MODULE__{ring: r} = ring, node) do
-    r2 = :gb_trees.to_list(r)
-      |> Enum.filter(fn {_key, ^node} -> false; _ -> true end)
-      |> :gb_trees.from_orddict()
-    %{ring | ring: r2}
+    cond do
+      Enum.member?(ring.nodes, node) ->
+        r2 = :gb_trees.to_list(r)
+        |> Enum.filter(fn {_key, ^node} -> false; _ -> true end)
+        |> :gb_trees.from_orddict()
+        %{ring | nodes: ring.nodes -- [node], ring: r2}
+      :else ->
+        ring
+    end
   end
 
   @doc """

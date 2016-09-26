@@ -775,16 +775,33 @@ defmodule Swarm.Tracker do
   # This is the callback for tracker events which are being replicated from other nodes in the cluster
   @doc false
   def handle_event(%TrackerState{clock: clock} = state, parent, debug, {{:track, name, pid, meta}, _from, rclock}) do
-    log "event: track #{inspect {name, pid, meta}}"
-    cond do
-      ITC.leq(clock, rclock) ->
-        ref = Process.monitor(pid)
-        :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: rclock))
-        {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
-      :else ->
-        warn "received track event for #{inspect name}, but local clock conflicts with remote clock, event unhandled"
-        # TODO: Handle conflict?
+    log "replicating registration for #{inspect name} (#{inspect pid}) locally"
+    case Registry.get_by_pid(pid) do
+      entry(name: ^name, pid: ^pid, meta: ^meta) ->
+        # We already track this pid
         {:tracking, state, parent, debug}
+      entry(name: ^name, pid: ^pid, meta: lmeta) ->
+        # We already track this pid, but the meta is outdated
+        cond do
+          ITC.leq(clock, rclock) ->
+            new_meta = Map.merge(lmeta, meta)
+            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}])
+            {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
+          :else ->
+            warn "received track event for #{inspect name}, but local clock conflicts with remote clock, event unhandled"
+            {:tracking, state, parent, debug}
+        end
+      :undefined ->
+        cond do
+          ITC.leq(clock, rclock) ->
+            ref = Process.monitor(pid)
+            :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: rclock))
+            {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
+          :else ->
+            warn "received track event for #{inspect name}, but local clock conflicts with remote clock, event unhandled"
+            # TODO: Handle conflict?
+            {:tracking, state, parent, debug}
+        end
     end
   end
   def handle_event(%TrackerState{clock: clock} = state, parent, debug, {{:untrack, pid}, _from, rclock}) do
@@ -889,44 +906,83 @@ defmodule Swarm.Tracker do
     end
   end
   defp handle_call({:track, name, pid, meta}, _from, %TrackerState{} = state) do
-    log "call: track #{inspect {name, pid, meta}}"
+    log "registering #{inspect pid} as #{inspect name}, with metadata #{inspect meta}"
     add_registration(state, name, pid, meta)
   end
   defp handle_call({:track, name, m, f, a}, from, %TrackerState{ring: ring} = state) do
-    log "call: track #{inspect {name, m, f, a}}"
+    log "registering #{inspect name} as process started by #{m}.#{f}/#{length(a)} with args #{inspect a}"
     current_node = Node.self
     case Ring.key_to_node(ring, name) do
       ^current_node ->
-        log "starting #{inspect {m,f,a}} on #{current_node}"
         case Registry.get_by_name(name) do
           :undefined ->
+            log "starting #{inspect name} on #{current_node}"
             try do
               case apply(m, f, a) do
                 {:ok, pid} ->
+                  log "started #{inspect name} on #{current_node}"
                   add_registration(state, name, pid, %{mfa: {m,f,a}})
                 err ->
+                  warn "failed to start #{inspect name} on #{current_node}: #{inspect err}"
                   {:reply, {:error, {:invalid_return, err}}, state}
               end
             catch
-              _, reason ->
+              kind, reason ->
+                warn Exception.format(kind, reason, System.stacktrace)
                 {:reply, {:error, reason}, state}
             end
           entry(pid: pid) ->
+            log "found #{inspect name} already registered on #{current_node}"
             {:reply, {:error, {:already_registered, pid}}, state}
         end
       remote_node ->
-        log "starting #{inspect {m,f,a}} on #{remote_node}"
         Task.start(fn ->
-          try do
-            reply = GenServer.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity)
-            GenServer.reply(from, reply)
-          catch
-            _, err ->
-              warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}, retrying operation.."
-              send(__MODULE__, {:retry, {:track, name, m, f, a, from}})
-          end
+          log "starting #{inspect name} on #{remote_node}"
+          start_pid_remotely(remote_node, from, name, m, f, a, state)
         end)
         {:noreply, state}
+    end
+  end
+
+  defp start_pid_remotely(remote_node, from, name, m, f, a, %TrackerState{} = state) do
+    try do
+      case GenServer.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity) do
+        {:ok, pid} ->
+          log "started #{inspect name} (#{inspect pid}) on #{remote_node}"
+          ref = Process.monitor(pid)
+          lclock = ITC.peek(state.clock)
+          :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
+          GenServer.reply(from, {:ok, pid})
+        {:error, {:already_registered, pid}} = err ->
+          case Registry.get_by_pid(pid) do
+            :undefined ->
+              log "#{inspect name} already registered to #{inspect pid} on #{remote_node}, but missing locally"
+              ref = Process.monitor(pid)
+              lclock = ITC.peek(state.clock)
+              :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{}, clock: lclock))
+              GenServer.reply(from, {:ok, pid})
+            entry(pid: ^pid) ->
+              log "#{inspect name} already registered to #{inspect pid} on #{remote_node}"
+              GenServer.reply(from, err)
+          end
+        {:error, _reason} = err ->
+          warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}"
+          GenServer.reply(from, err)
+      end
+    catch
+      _, {{:nodedown, _}, _} ->
+        warn "failed to start #{inspect name} on #{remote_node}: nodedown, retrying operation.."
+        new_state = %{state | nodes: state.nodes -- [remote_node], ring: Ring.remove_node(state.ring, remote_node)}
+        current_node = Node.self
+        case Ring.key_to_node(new_state.ring, name) do
+          ^current_node ->
+            handle_call({:track, name, m, f, a}, from, new_state)
+          other_node ->
+            start_pid_remotely(other_node, from, name, m, f, a, new_state)
+        end
+      _, err ->
+        warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"
+        GenServer.reply(from, {:error, err})
     end
   end
 
@@ -978,7 +1034,8 @@ defmodule Swarm.Tracker do
         # this event may have occurred before we get a nodedown event, so
         # for the purposes of this handler, preemptively remove the node from the
         # ring when calculating the new node
-        state = %{state | ring: Ring.remove_node(state.ring, node(pid))}
+        pid_node = node(pid)
+        state = %{state | nodes: state.nodes -- [pid_node], ring: Ring.remove_node(state.ring, pid_node)}
         case Ring.key_to_node(ring, name) do
           ^current_node ->
             log "restarting pid #{inspect pid} on #{current_node}"
@@ -1037,9 +1094,7 @@ defmodule Swarm.Tracker do
   end
 
   # Used for fetching the current process state
-  def system_get_state({_next_state, state}) do
-    {:ok, state}
-  end
+  def system_get_state({_next_state, state, _extra}), do: {:ok, state}
 
   # Called when someone asks to replace the current process state
   # Required, but you really really shouldn't do this.
@@ -1083,7 +1138,7 @@ defmodule Swarm.Tracker do
         :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: ITC.peek(clock)))
         broadcast_event(nodes, ITC.peek(clock), {:track, name, pid, meta})
         {:reply, {:ok, pid}, %{state | clock: clock}}
-      entry(pid: pid) ->
+      entry(pid: ^pid) ->
         {:reply, {:error, {:already_registered, pid}}, state}
     end
   end

@@ -259,6 +259,31 @@ defmodule Swarm.Tracker do
           :else ->
             syncing(state, parent, debug, {sync_node, pending_requests})
         end
+      # The other node saw that we were syncing with it, and issued a tiebreaker request
+      # this only occurs if we're the only two nodes in the cluster
+      {:sync_break_tie, from, rdie} = msg when node(from) == sync_node ->
+        debug = handle_debug(debug, {:in, msg, from})
+        # Break the tie and continue
+        ldie = :rand.uniform(20)
+        log "there is a tie between syncing nodes, breaking with die roll (#{ldie}).."
+        msg = {:sync_break_tie, self(), ldie}
+        send(from, msg)
+        debug = handle_debug(debug, {:out, msg, from})
+        cond do
+          ldie > rdie or (rdie == ldie and Node.self > node(from)) ->
+            log "we won the die roll (#{ldie} vs #{rdie}), sending registry.."
+            # This is the new seed node
+            {clock, rclock} = ITC.fork(ITC.seed())
+            out_msg = {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)}
+            send(from, out_msg)
+            debug = handle_debug(debug, {:out, out_msg, from})
+            extra = {{:sync_ack, sync_node}, :resolve_pending_sync_requests, pending_requests}
+            {:waiting, %{state | clock: clock}, parent, debug, extra}
+          :else ->
+            log "#{node(from)} won the die roll (#{rdie} vs #{ldie}), "
+            # the other node wins the roll
+            {:syncing, state, parent, debug, {sync_node, pending_requests}}
+        end
       # Receive a copy of the registry from our sync target
       {:sync_recv, from, clock, registry} ->
         debug = handle_debug(debug, {:in, {:sync_recv, from, clock, :swarm_registry}})

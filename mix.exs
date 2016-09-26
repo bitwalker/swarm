@@ -15,7 +15,7 @@ defmodule Swarm.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :inets, :poison],
+    [applications: [:logger, :crypto, :inets, :poison],
      mod: {Swarm, []}]
   end
 

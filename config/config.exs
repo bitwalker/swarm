@@ -1,11 +1,11 @@
 use Mix.Config
 
 config :swarm,
-  debug: true,
+  debug: false,
   autocluster: false
 
 config :logger,
-  level: :debug
+  level: :warn
 
 config :porcelain,
   goon_warn_if_missing: false

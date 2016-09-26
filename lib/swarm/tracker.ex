@@ -1,4 +1,17 @@
 defmodule Swarm.Tracker do
+  @moduledoc """
+  This module implements the distributed tracker for process registrations and groups.
+  It is implemented as an OTP special process, so it behaves like a GenServer, but it is
+  actually implemented directly with `:proc_lib` and `:sys`.
+
+  Each node Swarm runs on will have a single instance of this process, and the trackers will
+  replicate data between each other, and/or forward requests to remote trackers as necessary.
+
+  The tracker itself is a finite state machine, where each top-level state kicks off a smaller,
+  more restricted state machine, which both handles it's sub-states, and enables us to respond to
+  certain critical calls from other trackers without blocking, or in the case of events where the
+  two trackers are blocking on calls to each other, without deadlocking.
+  """
   import Swarm.Entry
   alias Swarm.IntervalTreeClock, as: ITC
   alias Swarm.{Registry, Ring}

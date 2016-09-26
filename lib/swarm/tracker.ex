@@ -1279,7 +1279,7 @@ defmodule Swarm.Tracker do
   end
 
   # The list of configured ignore patterns for nodes
-  defp ignored_node_patterns(), do: Application.get_env(:swarm, :ignore_node_patterns, [])
+  defp ignored_node_patterns(), do: Application.get_env(:swarm, :ignore_node_patterns, [~r/^remsh.*/])
 
   # Determine if a node should be ignored, even if connected
   # The ignore list can be literal strings, regexes, or regex strings

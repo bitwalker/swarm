@@ -89,7 +89,7 @@ defmodule Swarm.Tracker do
     # Before we can be considered "up", we must sync with
     # some other node in the cluster, if they exist, otherwise
     # we seed our own ITC and start tracking
-    debug = :sys.debug_options([])
+    debug = :sys.debug_options(Application.get_env(:swarm, :debug_opts, []))
     # wait for node list to populate
     ring = Enum.reduce(Node.list, Ring.new(Node.self), fn n, r ->
       Ring.add_node(r, n)

@@ -513,7 +513,7 @@ defmodule Swarm.Tracker do
       # Received a handoff request from a node
       {from, {:handoff, name, m, f, a, handoff_state, rclock}} = msg ->
         debug = handle_debug(debug, {:in, msg, from})
-        {:handoff, state, parent, debug, {name, m, f, a, handoff_state, rclock}}
+        {:handoff, state, parent, debug, {from, name, m, f, a, handoff_state, rclock}}
       # A remote registration failed due to nodedown during the call
       {:retry, {:track, name, m, f, a, from}} = msg ->
         debug = handle_debug(debug, {:in, msg, from})

@@ -1095,14 +1095,13 @@ defmodule Swarm.Tracker do
 
   # Called when a pid dies, and the monitor is triggered
   @doc false
-  def handle_monitor(%TrackerState{ring: ring} = state, parent, debug, {ref, pid, :noconnection}) do
+  def handle_monitor(%TrackerState{nodes: nodes, ring: ring} = state, parent, debug, {_ref, pid, :noconnection}) do
     # lost connection to the node this pid is running on, check if we should restart it
-    log "lost connection to pid (#{inspect pid}), checking to see if we should revive it"
-    case Registry.get_by_ref(ref) do
+    case Registry.get_by_pid(pid) do
       :undefined ->
-        log "could not find pid #{inspect pid}"
         {:tracking, state, parent, debug}
-      entry(name: name, pid: ^pid, ref: ^ref, meta: %{mfa: {m,f,a}}) = obj ->
+      entry(name: name, pid: ^pid, meta: %{mfa: {m,f,a}}) = obj ->
+        log "lost connection to #{inspect name} (#{inspect pid}) on #{node(pid)}, node is down"
         current_node = Node.self
         # this event may have occurred before we get a nodedown event, so
         # for the purposes of this handler, preemptively remove the node from the
@@ -1121,18 +1120,17 @@ defmodule Swarm.Tracker do
             {:noreply, state} = remove_registration(state, obj)
             {:tracking, state, parent, debug}
         end
-      entry(pid: pid, ref: ^ref, meta: meta) = obj ->
-        log "nothing to do for pid #{inspect pid} (meta: #{inspect meta})"
+      entry(pid: ^pid) = obj ->
         {:noreply, state} = remove_registration(state, obj)
         {:tracking, state, parent, debug}
     end
   end
-  def handle_monitor(%TrackerState{} = state, parent, debug, {ref, pid, reason}) do
-    log "pid (#{inspect pid}) down: #{inspect reason}"
-    case Registry.get_by_ref(ref) do
+  def handle_monitor(%TrackerState{} = state, parent, debug, {_ref, pid, reason}) do
+    case Registry.get_by_pid(pid) do
       :undefined ->
         {:tracking, state, parent, debug}
-      entry(ref: ^ref) = obj ->
+      entry(name: name, pid: ^pid) = obj ->
+        log "#{inspect name} (#{inspect pid}) is down: #{inspect reason}"
         {:noreply, state} = remove_registration(state, obj)
         {:tracking, state, parent, debug}
     end

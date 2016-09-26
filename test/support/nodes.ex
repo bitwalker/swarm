@@ -65,7 +65,12 @@ defmodule Swarm.Nodes do
   defp receive_loop(node_name, pid) do
     receive do
       {^pid, :data, :out, data} ->
-        IO.puts data
+        case Application.get_env(:logger, :level, :warn) do
+          :debug ->
+            IO.puts data
+          _ ->
+            :ok
+        end
         receive_loop(node_name, pid)
       {^pid, :result, %{status: status}} ->
         IO.inspect {:exit, node_name, status}

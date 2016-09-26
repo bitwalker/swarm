@@ -84,7 +84,7 @@ defmodule Swarm.Tracker do
     # Tell the supervisor we've started
     :proc_lib.init_ack(parent, {:ok, self()})
     # Start monitoring nodes
-    :ok = :net_kernel.monitor_nodes(true, [])
+    :ok = :net_kernel.monitor_nodes(true, [node_type: :all])
     log "started"
     # Before we can be considered "up", we must sync with
     # some other node in the cluster, if they exist, otherwise
@@ -130,8 +130,8 @@ defmodule Swarm.Tracker do
       {:EXIT, ^parent, reason} ->
         log "exiting: #{inspect reason}"
         exit(reason)
-      {:nodeup, node} ->
-        debug = handle_debug(debug, {:in, {:nodeup, node}})
+      {:nodeup, node, info} ->
+        debug = handle_debug(debug, {:in, {:nodeup, node, info}})
         cond do
           Enum.member?(nodes, node) ->
             cluster_wait(state, parent, debug, extra)
@@ -140,8 +140,8 @@ defmodule Swarm.Tracker do
           :else ->
             cluster_wait(%TrackerState{nodes: [node|nodes], ring: Ring.add_node(ring, node)}, parent, debug, extra)
         end
-      {:nodedown, node} ->
-        debug = handle_debug(debug, {:in, {:nodedown, node}})
+      {:nodedown, node, info} ->
+        debug = handle_debug(debug, {:in, {:nodedown, node, info}})
         cond do
           Enum.member?(nodes, node) ->
             cluster_wait(%TrackerState{nodes: nodes -- [node], ring: Ring.remove_node(ring, node)}, parent, debug, extra)
@@ -216,9 +216,9 @@ defmodule Swarm.Tracker do
         exit(reason)
       # We want to handle nodeup/down events while syncing so that if we need to select
       # a new node, we can do so.
-      {:nodeup, node} ->
+      {:nodeup, node, info} ->
         log "node up #{node}"
-        debug = handle_debug(debug, {:in, {:nodeup, node}})
+        debug = handle_debug(debug, {:in, {:nodeup, node, info}})
         cond do
           Enum.member?(nodes, node) ->
             syncing(state, parent, debug, {sync_node, pending_requests})
@@ -229,9 +229,9 @@ defmodule Swarm.Tracker do
             syncing(new_state, parent, debug, {sync_node, pending_requests})
         end
       # If our target node goes down, we need to select a new target or become the seed node
-      {:nodedown, ^sync_node} ->
+      {:nodedown, ^sync_node, info} ->
         log "the selected sync node #{sync_node} went down, selecting new node"
-        debug = handle_debug(debug, {:in, {:nodedown, sync_node}})
+        debug = handle_debug(debug, {:in, {:nodedown, sync_node, info}})
         case nodes -- [sync_node] do
           [] ->
             # there are no other nodes to select, we'll be the seed
@@ -247,8 +247,8 @@ defmodule Swarm.Tracker do
             syncing(new_state, parent, debug, {new_sync_node, pending_requests})
         end
       # Keep the hash ring up to date if other nodes go down
-      {:nodedown, node} ->
-        debug = handle_debug(debug, {:in, {:nodedown, node}})
+      {:nodedown, node, info} ->
+        debug = handle_debug(debug, {:in, {:nodedown, node, info}})
         cond do
           Enum.member?(nodes, node) ->
             log "node down #{node}"
@@ -352,7 +352,7 @@ defmodule Swarm.Tracker do
       {:EXIT, ^parent, reason} ->
         log "exiting: #{inspect reason}"
         exit(reason)
-      {:nodedown, ^sync_node} = msg ->
+      {:nodedown, ^sync_node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         # welp, guess we'll try a new node
         case nodes -- [sync_node] do
@@ -425,11 +425,11 @@ defmodule Swarm.Tracker do
         debug = handle_debug(debug, {:in, msg})
         log "wait for #{inspect reply} from #{remote_node} complete"
         {next_state, state, parent, debug, next_state_extra}
-      {:nodedown, ^remote_node} = msg ->
+      {:nodedown, ^remote_node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         warn "wait for #{remote_node} cancelled, node went down"
         {next_state, state, parent, debug, next_state_extra}
-      {:nodedown, node} = msg ->
+      {:nodedown, node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
@@ -440,7 +440,7 @@ defmodule Swarm.Tracker do
           :else ->
             waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
         end
-      {:nodeup, node} = msg ->
+      {:nodeup, node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
@@ -476,10 +476,10 @@ defmodule Swarm.Tracker do
       {:EXIT, _child, _reason} ->
         tracking(state, parent, debug, extra)
       # Cluster topology change events
-      {:nodeup, node} = msg ->
+      {:nodeup, node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         {:nodeup, state, parent, debug, {node, :tracking, extra}}
-      {:nodedown, node} = msg ->
+      {:nodedown, node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         {:nodedown, state, parent, debug, {node, :tracking, extra}}
       :anti_entropy ->
@@ -536,11 +536,11 @@ defmodule Swarm.Tracker do
       {:EXIT, ^parent, reason} ->
         log "exiting: #{inspect reason}"
         exit(reason)
-      {:nodedown, ^sync_node} = msg ->
+      {:nodedown, ^sync_node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         warn "sync with #{sync_node} failed: nodedown, aborting this pass"
         state
-      {:nodedown, node} = msg ->
+      {:nodedown, node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
@@ -551,7 +551,7 @@ defmodule Swarm.Tracker do
           :else ->
             anti_entropy(state, parent, debug, {sync_node, start_time})
         end
-      {:nodeup, node} = msg ->
+      {:nodeup, node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->

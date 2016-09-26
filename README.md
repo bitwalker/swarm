@@ -41,7 +41,7 @@ end
 
 - auto-balancing of processes in the cluster require registrations be done via
   `register_name/4`, which takes module/function/args params, and handles starting
-  the process for you. The MFA must return `{:ok, pid}` or a plain pid.
+  the process for you. The MFA must return `{:ok, pid}`.
   This is how Swarm handles process handoff between nodes, and automatic restarts when nodedown
   events occur and the cluster topology changes.
 
@@ -147,7 +147,7 @@ defmodule MyApp.WorkerSup do
 
   def init(_) do
     children = [
-      worker(MyApp.Worker, [], restart: :transient)
+      worker(MyApp.Worker, [], restart: :temporary)
     ]
     supervise(children, strategy: :simple_one_for_one)
   end

@@ -811,9 +811,35 @@ defmodule Swarm.Tracker do
                 lclock
             end
         end
-      entry(name: name, pid: pid), lclock ->
-        log "doing nothing for #{inspect name}, it is owned by #{node(pid)}"
-        lclock
+      entry(name: name, pid: pid, meta: %{mfa: {m,f,a}}) = obj, lclock ->
+        cond do
+          Enum.member?(state.nodes, node(pid)) ->
+            # the parent node is still up
+            lclock
+          :else ->
+            # pid is dead, we're going to restart it
+            case Ring.key_to_node(state.ring, name) do
+              ^current_node ->
+                log "restarting #{inspect name} on #{current_node}"
+                {:noreply, state} = remove_registration(%{state | clock: lclock}, obj)
+                {:reply, _, state} = handle_call({:track, name, m, f, a}, nil, %{state | clock: lclock})
+                state.clock
+              _other_node ->
+                # other_node will tell us to unregister/register the restarted pid
+                lclock
+            end
+        end
+      entry(name: name, pid: pid) = obj, lclock ->
+        cond do
+          Enum.member?(state.nodes, node(pid)) ->
+            # the parent node is still up
+            lclock
+          :else ->
+            # the parent node is down, but we cannot restart this pid, so unregister it
+            log "removing registration for #{inspect name}, #{node(pid)} is down"
+            {:noreply, state} = remove_registration(%{state | clock: lclock}, obj)
+            state.clock
+        end
     end, state.clock, :swarm_registry)
     log "topology change complete"
     {next_state, %{state | clock: clock}, parent, debug, next_extra}

@@ -87,7 +87,7 @@ end
 
 defimpl Inspect, for: Swarm.Ring do
   def inspect(%Swarm.Ring{ring: ring}, _opts) do
-    nodes = Enum.map(:gb_trees.to_list(ring), fn {_, n} -> n end)
+    nodes = Enum.uniq(Enum.map(:gb_trees.to_list(ring), fn {_, n} -> n end))
     "#<Ring#{Kernel.inspect nodes}>"
   end
 end

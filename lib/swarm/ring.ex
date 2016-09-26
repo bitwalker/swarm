@@ -48,7 +48,9 @@ defmodule Swarm.Ring do
   @spec add_node(__MODULE__.t, node(), pos_integer) :: __MODULE__.t
   def add_node(%__MODULE__{} = ring, node, weight \\ 128) do
     Enum.reduce(1..weight, ring, fn i, %__MODULE__{ring: r} = acc ->
-      n = :erlang.phash2({node, i}, @hash_range)
+      n = :crypto.hash(:sha256, :erlang.term_to_binary({node, i}))
+          |> :crypto.bytes_to_integer()
+          |> :erlang.phash2(@hash_range)
       %{acc | ring: :gb_trees.insert(n, node, r)}
     end)
   end
@@ -70,7 +72,9 @@ defmodule Swarm.Ring do
   """
   @spec key_to_node(__MODULE__.t, term) :: node() | no_return
   def key_to_node(%__MODULE__{ring: r}, key) do
-    hash = :crypto.hash(:sha256, :erlang.term_to_binary(key)) |> :erlang.phash2(@hash_range)
+    hash = :crypto.hash(:sha256, :erlang.term_to_binary(key))
+           |> :crypto.bytes_to_integer()
+           |> :erlang.phash2(@hash_range)
     case :gb_trees.iterator_from(hash, r) do
       [{_key, node, _, _}|_] ->
         node

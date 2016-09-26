@@ -20,11 +20,13 @@ defmodule Swarm.Ring do
 
   @hash_range trunc(:math.pow(2, 32) - 1)
 
+  defstruct ring: :gb_trees.empty
+
   @doc """
   Creates a new hash ring structure, with no nodes added yet
   """
   @spec new() :: __MODULE__.t
-  def new(), do: :gb_trees.empty
+  def new(), do: %__MODULE__{}
 
   @doc """
   Creates a new hash ring structure, seeded with the given node,
@@ -44,10 +46,10 @@ defmodule Swarm.Ring do
   The default weight for a node is 128
   """
   @spec add_node(__MODULE__.t, node(), pos_integer) :: __MODULE__.t
-  def add_node(ring, node, weight \\ 128) do
-    Enum.reduce(1..weight, ring, fn _, acc ->
-      n = :rand.uniform(@hash_range)
-      :gb_trees.insert(n, node, acc)
+  def add_node(%__MODULE__{} = ring, node, weight \\ 128) do
+    Enum.reduce(1..weight, ring, fn i, %__MODULE__{ring: r} = acc ->
+      n = :erlang.phash2({node, i}, @hash_range)
+      %{acc | ring: :gb_trees.insert(n, node, r)}
     end)
   end
 
@@ -55,10 +57,11 @@ defmodule Swarm.Ring do
   Removes a node from the hash ring.
   """
   @spec remove_node(__MODULE__.t, node()) :: __MODULE__.t
-  def remove_node(ring, node) do
-    :gb_trees.to_list(ring)
-    |> Enum.filter(fn {_key, ^node} -> false; _ -> true end)
-    |> :gb_trees.from_orddict()
+  def remove_node(%__MODULE__{ring: r} = ring, node) do
+    r2 = :gb_trees.to_list(r)
+      |> Enum.filter(fn {_key, ^node} -> false; _ -> true end)
+      |> :gb_trees.from_orddict()
+    %{ring | ring: r2}
   end
 
   @doc """
@@ -66,14 +69,21 @@ defmodule Swarm.Ring do
   This function assumes that the ring has been populated with at least one node.
   """
   @spec key_to_node(__MODULE__.t, term) :: node() | no_return
-  def key_to_node(ring, key) do
+  def key_to_node(%__MODULE__{ring: r}, key) do
     hash = :crypto.hash(:sha256, :erlang.term_to_binary(key)) |> :erlang.phash2(@hash_range)
-    case :gb_trees.iterator_from(hash, ring) do
+    case :gb_trees.iterator_from(hash, r) do
       [{_key, node, _, _}|_] ->
         node
       _ ->
-        {_key, node} = :gb_trees.smallest(ring)
+        {_key, node} = :gb_trees.smallest(r)
         node
     end
+  end
+end
+
+defimpl Inspect, for: Swarm.Ring do
+  def inspect(%Swarm.Ring{ring: ring}, _opts) do
+    nodes = Enum.map(:gb_trees.to_list(ring), fn {_, n} -> n end)
+    "#<Ring#{Kernel.inspect nodes}>"
   end
 end

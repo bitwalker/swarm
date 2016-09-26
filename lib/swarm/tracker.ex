@@ -91,10 +91,11 @@ defmodule Swarm.Tracker do
     # we seed our own ITC and start tracking
     debug = :sys.debug_options(Application.get_env(:swarm, :debug_opts, []))
     # wait for node list to populate
-    ring = Enum.reduce(Node.list, Ring.new(Node.self), fn n, r ->
+    nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
+    ring = Enum.reduce(nodelist, Ring.new(Node.self), fn n, r ->
       Ring.add_node(r, n)
     end)
-    state = %TrackerState{nodes: Node.list, ring: ring}
+    state = %TrackerState{nodes: nodelist, ring: ring}
     try do
       # start internal state machine
       change_state(:cluster_wait, state, parent, debug)
@@ -134,6 +135,8 @@ defmodule Swarm.Tracker do
         cond do
           Enum.member?(nodes, node) ->
             cluster_wait(state, parent, debug, extra)
+          ignore_node?(node) ->
+            cluster_wait(state, parent, debug, extra)
           :else ->
             cluster_wait(%TrackerState{nodes: [node|nodes], ring: Ring.add_node(ring, node)}, parent, debug, extra)
         end
@@ -142,6 +145,8 @@ defmodule Swarm.Tracker do
         cond do
           Enum.member?(nodes, node) ->
             cluster_wait(%TrackerState{nodes: nodes -- [node], ring: Ring.remove_node(ring, node)}, parent, debug, extra)
+          ignore_node?(node) ->
+            cluster_wait(state, parent, debug, extra)
           :else ->
             cluster_wait(state, parent, debug, extra)
         end
@@ -217,6 +222,8 @@ defmodule Swarm.Tracker do
         cond do
           Enum.member?(nodes, node) ->
             syncing(state, parent, debug, {sync_node, pending_requests})
+          ignore_node?(node) ->
+            syncing(state, parent, debug, {sync_node, pending_requests})
           :else ->
             new_state = %{state | nodes: [node|nodes], ring: Ring.add_node(ring, node)}
             syncing(new_state, parent, debug, {sync_node, pending_requests})
@@ -247,6 +254,8 @@ defmodule Swarm.Tracker do
             log "node down #{node}"
             new_state = %{state | nodes: nodes -- [node], ring: Ring.remove_node(ring, node)}
             syncing(new_state, parent, debug, {sync_node, pending_requests})
+          ignore_node?(node) ->
+            syncing(state, parent, debug, {sync_node, pending_requests})
           :else ->
             syncing(state, parent, debug, {sync_node, pending_requests})
         end
@@ -426,6 +435,8 @@ defmodule Swarm.Tracker do
           Enum.member?(state.nodes, node) ->
             new_state = %{state | nodes: [node|state.nodes], ring: Ring.add_node(state.ring, node)}
             waiting(new_state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
+          ignore_node?(node) ->
+            waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
           :else ->
             waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
         end
@@ -433,6 +444,8 @@ defmodule Swarm.Tracker do
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
+            waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
+          ignore_node?(node) ->
             waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
           :else ->
             new_state = %{state | nodes: [node|state.nodes], ring: Ring.add_node(state.ring, node)}
@@ -533,6 +546,8 @@ defmodule Swarm.Tracker do
           Enum.member?(state.nodes, node) ->
             new_state = %{state | nodes: nodes -- [node], ring: Ring.remove_node(state.ring, node)}
             anti_entropy(new_state, parent, debug, {sync_node, start_time})
+          ignore_node?(node) ->
+            anti_entropy(state, parent, debug, {sync_node, start_time})
           :else ->
             anti_entropy(state, parent, debug, {sync_node, start_time})
         end
@@ -540,6 +555,8 @@ defmodule Swarm.Tracker do
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
+            anti_entropy(state, parent, debug, {sync_node, start_time})
+          ignore_node?(node) ->
             anti_entropy(state, parent, debug, {sync_node, start_time})
           :else ->
             new_state = %{state | nodes: [node|state.nodes], ring: Ring.add_node(state.ring, node)}
@@ -673,6 +690,8 @@ defmodule Swarm.Tracker do
     cond do
       Enum.member?(nodes, node) ->
         {next_state, state, parent, debug, next_state_extra}
+      ignore_node?(node) ->
+        {next_state, state, parent, debug, next_state_extra}
       :else ->
         case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
           {:ok, _} ->
@@ -693,12 +712,15 @@ defmodule Swarm.Tracker do
       Enum.member?(nodes, node) ->
         log "nodedown #{node}"
         ring = Ring.remove_node(ring, node)
-        new_state = %{state | nodes: nodes -- [node], ring: Ring.remove_node(ring, node)}
+        new_state = %{state | nodes: nodes -- [node], ring: ring}
         {:topology_change, new_state, parent, debug, {:nodedown, node, next_state, next_state_extra}}
+      ignore_node?(node) ->
+        {next_state, state, parent, debug, next_state_extra}
       :else ->
         {next_state, state, parent, debug, next_state_extra}
     end
   end
+
   # This is the callback for when a process is being handed off from a remote node to this node.
   @doc false
   def handoff(%TrackerState{clock: clock} = state, parent, debug, {_from, name, m, f, a, handoff_state, _rclock}) do
@@ -1035,7 +1057,8 @@ defmodule Swarm.Tracker do
         # for the purposes of this handler, preemptively remove the node from the
         # ring when calculating the new node
         pid_node = node(pid)
-        state = %{state | nodes: state.nodes -- [pid_node], ring: Ring.remove_node(state.ring, pid_node)}
+        ring  = Ring.remove_node(ring, pid_node)
+        state = %{state | nodes: nodes -- [pid_node], ring: ring}
         case Ring.key_to_node(ring, name) do
           ^current_node ->
             log "restarting pid #{inspect pid} on #{current_node}"
@@ -1191,5 +1214,28 @@ defmodule Swarm.Tracker do
         broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
         {:noreply, %{state | clock: clock}}
     end
+  end
+
+  # The list of configured ignore patterns for nodes
+  defp ignored_node_patterns(), do: Application.get_env(:swarm, :ignore_node_patterns, [])
+
+  # Determine if a node should be ignored, even if connected
+  # The ignore list can be literal strings, regexes, or regex strings
+  defp ignore_node?(node) do
+    node_s = Atom.to_string(node)
+    Enum.any?(ignored_node_patterns, fn
+      ^node_s ->
+        true
+      %Regex{} = pattern ->
+        Regex.match?(pattern, node_s)
+      pattern when is_binary(pattern) ->
+        case Regex.compile(pattern) do
+          {:ok, rx} ->
+            Regex.match?(rx, node_s)
+          {:error, reason} ->
+            warn "invalid ignore_node_pattern (#{inspect pattern}): #{inspect reason}"
+            false
+        end
+    end)
   end
 end

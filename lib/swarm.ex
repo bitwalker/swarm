@@ -9,7 +9,7 @@ defmodule Swarm do
   you are manually handling Swarm's application lifecycle.
   """
   def start(_type, _args) do
-    Swarm.Supervisor.start_link()
+    Swarm.App.start_link()
   end
 
   @doc """

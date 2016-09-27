@@ -1,4 +1,4 @@
-defmodule Swarm.Supervisor do
+defmodule Swarm.App do
   @moduledoc false
   use Supervisor
 

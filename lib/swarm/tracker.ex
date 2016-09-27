@@ -249,7 +249,8 @@ defmodule Swarm.Tracker do
           [] ->
             # there are no other nodes to select, we'll be the seed
             log "no other available nodes, becoming seed node"
-            %{state | nodes: [], ring: Ring.remove_node(ring, sync_node), clock: ITC.seed()}
+            new_state = %{state | nodes: [], ring: Ring.remove_node(ring, sync_node), clock: ITC.seed()}
+            {:tracking, new_state, parent, debug}
           nodes ->
             new_sync_node = Enum.random(nodes)
             log "selected sync node: #{new_sync_node}"

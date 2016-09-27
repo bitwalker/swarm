@@ -30,7 +30,7 @@ defmodule Swarm.Mixfile do
     [files: ["lib", "src", "mix.exs", "README.md", "LICENSE.md"],
      maintainers: ["Paul Schoenfelder"],
      licenses: ["MIT"],
-     links: %{ "Gitub": "https://github.com/bitwalker/swarm" }]
+     links: %{ "Github": "https://github.com/bitwalker/swarm" }]
   end
 
   defp docs do

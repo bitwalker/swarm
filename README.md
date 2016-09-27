@@ -16,7 +16,7 @@ View the docs [here](https://hexdocs.pm/swarm).
 
 ```elixir
 defp deps do
-  [{:swarm, "~> 0.5"}]
+  [{:swarm, "~> 1.0"}]
 end
 ```
 

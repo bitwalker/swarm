@@ -454,12 +454,13 @@ defmodule Swarm.Tracker do
       {:nodedown, ^remote_node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         warn "wait for #{remote_node} cancelled, node went down"
-        {next_state, state, parent, debug, next_state_extra}
+        new_state = %{state | nodes: state.nodes -- [remote_node], ring: Ring.remove_node(state.ring, remote_node)}
+        {next_state, new_state, parent, debug, next_state_extra}
       {:nodedown, node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
-            new_state = %{state | nodes: [node|state.nodes], ring: Ring.add_node(state.ring, node)}
+            new_state = %{state | nodes: state.nodes -- [node], ring: Ring.remove_node(state.ring, node)}
             waiting(new_state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
           ignore_node?(node) ->
             waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})

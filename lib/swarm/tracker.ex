@@ -71,6 +71,12 @@ defmodule Swarm.Tracker do
       Swarm.Logger.debug("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
     end
   end
+  defmacrop log(level, msg) when is_atom(level) do
+    {current_state, _arity} = __CALLER__.function
+    quote do
+      apply(Swarm.Logger, unquote(level), ["[tracker:#{unquote(current_state)}] #{unquote(msg)}"])
+    end
+  end
   defmacrop warn(msg) do
     {current_state, _arity} = __CALLER__.function
     quote do
@@ -98,7 +104,7 @@ defmodule Swarm.Tracker do
     :proc_lib.init_ack(parent, {:ok, self()})
     # Start monitoring nodes
     :ok = :net_kernel.monitor_nodes(true, [node_type: :all])
-    log "started"
+    log :info, "started"
     # Before we can be considered "up", we must sync with
     # some other node in the cluster, if they exist, otherwise
     # we seed our own ITC and start tracking
@@ -141,7 +147,7 @@ defmodule Swarm.Tracker do
       {:system, from, request} ->
         :sys.handle_system_msg(request, from, parent, __MODULE__, debug, {:cluster_wait, state})
       {:EXIT, ^parent, reason} ->
-        log "exiting: #{inspect reason}"
+        log :info, "exiting: #{inspect reason}"
         exit(reason)
       {:nodeup, node, info} ->
         debug = handle_debug(debug, {:in, {:nodeup, node, info}})
@@ -151,12 +157,14 @@ defmodule Swarm.Tracker do
           ignore_node?(node) ->
             cluster_wait(state, parent, debug, extra)
           :else ->
+            log :info, "nodeup: #{node}"
             cluster_wait(%TrackerState{nodes: [node|nodes], ring: Ring.add_node(ring, node)}, parent, debug, extra)
         end
       {:nodedown, node, info} ->
         debug = handle_debug(debug, {:in, {:nodedown, node, info}})
         cond do
           Enum.member?(nodes, node) ->
+            log :info, "nodedown: #{node}"
             cluster_wait(%TrackerState{nodes: nodes -- [node], ring: Ring.remove_node(ring, node)}, parent, debug, extra)
           ignore_node?(node) ->
             cluster_wait(state, parent, debug, extra)
@@ -175,19 +183,19 @@ defmodule Swarm.Tracker do
   # of the clock which all other nodes will fork from
   @doc false
   def cluster_join(%TrackerState{nodes: []} = state, parent, debug, _extra) do
-    log "joining cluster.."
-    log "no connected nodes, proceeding without sync"
+    log :info, "joining cluster.."
+    log :info, "no connected nodes, proceeding without sync"
     :timer.send_after(5 * 60_000, self(), :anti_entropy)
     {:tracking, %{state | clock: ITC.seed()}, parent, debug}
   end
   def cluster_join(%TrackerState{nodes: nodelist} = state, parent, debug, _extra) do
-    log "joining cluster.."
-    log "found connected nodes: #{inspect nodelist}"
+    log :info, "joining cluster.."
+    log :info, "found connected nodes: #{inspect nodelist}"
     # Connect to a random node and sync registries,
     # start anti-entropy, and start loop with forked clock of
     # remote node
     sync_node = Enum.random(nodelist)
-    log "selected sync node: #{sync_node}"
+    log :info, "selected sync node: #{sync_node}"
     # Send sync request
     GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
     debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, sync_node}})
@@ -225,12 +233,11 @@ defmodule Swarm.Tracker do
       {:system, from, request} ->
         :sys.handle_system_msg(request, from, parent, __MODULE__, debug, {:syncing, state, {sync_node, pending_requests}})
       {:EXIT, ^parent, reason} ->
-        log "exiting: #{inspect reason}"
+        log :info, "exiting: #{inspect reason}"
         exit(reason)
       # We want to handle nodeup/down events while syncing so that if we need to select
       # a new node, we can do so.
       {:nodeup, node, info} ->
-        log "node up #{node}"
         debug = handle_debug(debug, {:in, {:nodeup, node, info}})
         cond do
           Enum.member?(nodes, node) ->
@@ -238,22 +245,23 @@ defmodule Swarm.Tracker do
           ignore_node?(node) ->
             syncing(state, parent, debug, {sync_node, pending_requests})
           :else ->
+            log :info, "nodeup: #{node}"
             new_state = %{state | nodes: [node|nodes], ring: Ring.add_node(ring, node)}
             syncing(new_state, parent, debug, {sync_node, pending_requests})
         end
       # If our target node goes down, we need to select a new target or become the seed node
       {:nodedown, ^sync_node, info} ->
-        log "the selected sync node #{sync_node} went down, selecting new node"
+        log :info, "the selected sync node #{sync_node} went down, selecting new node"
         debug = handle_debug(debug, {:in, {:nodedown, sync_node, info}})
         case nodes -- [sync_node] do
           [] ->
             # there are no other nodes to select, we'll be the seed
-            log "no other available nodes, becoming seed node"
+            log :info, "no other available nodes, becoming seed node"
             new_state = %{state | nodes: [], ring: Ring.remove_node(ring, sync_node), clock: ITC.seed()}
             {:tracking, new_state, parent, debug}
           nodes ->
             new_sync_node = Enum.random(nodes)
-            log "selected sync node: #{new_sync_node}"
+            log :info, "selected sync node: #{new_sync_node}"
             # Send sync request
             GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
             debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, new_sync_node}})
@@ -265,7 +273,7 @@ defmodule Swarm.Tracker do
         debug = handle_debug(debug, {:in, {:nodedown, node, info}})
         cond do
           Enum.member?(nodes, node) ->
-            log "node down #{node}"
+            log :info, "nodedown: #{node}"
             new_state = %{state | nodes: nodes -- [node], ring: Ring.remove_node(ring, node)}
             syncing(new_state, parent, debug, {sync_node, pending_requests})
           ignore_node?(node) ->
@@ -279,13 +287,13 @@ defmodule Swarm.Tracker do
         debug = handle_debug(debug, {:in, msg, from})
         # Break the tie and continue
         ldie = :rand.uniform(20)
-        log "there is a tie between syncing nodes, breaking with die roll (#{ldie}).."
+        log :info, "there is a tie between syncing nodes, breaking with die roll (#{ldie}).."
         msg = {:sync_break_tie, self(), ldie}
         send(from, msg)
         debug = handle_debug(debug, {:out, msg, from})
         cond do
           ldie > rdie or (rdie == ldie and Node.self > node(from)) ->
-            log "we won the die roll (#{ldie} vs #{rdie}), sending registry.."
+            log :info, "we won the die roll (#{ldie} vs #{rdie}), sending registry.."
             # This is the new seed node
             {clock, rclock} = ITC.fork(ITC.seed())
             out_msg = {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)}
@@ -294,14 +302,14 @@ defmodule Swarm.Tracker do
             extra = {{:sync_ack, sync_node}, :resolve_pending_sync_requests, pending_requests}
             {:waiting, %{state | clock: clock}, parent, debug, extra}
           :else ->
-            log "#{node(from)} won the die roll (#{rdie} vs #{ldie}), "
+            log :info, "#{node(from)} won the die roll (#{rdie} vs #{ldie}), "
             # the other node wins the roll
             {:syncing, state, parent, debug, {sync_node, pending_requests}}
         end
       # Receive a copy of the registry from our sync target
       {:sync_recv, from, clock, registry} ->
         debug = handle_debug(debug, {:in, {:sync_recv, from, clock, :swarm_registry}})
-        log "received sync response, loading registry.."
+        log :info, "received sync response, loading registry.."
         # let remote node know we've got the registry
         send(from, {:sync_ack, Node.self})
         debug = handle_debug(debug, {:out, {:sync_ack, Node.self}, from})
@@ -312,7 +320,7 @@ defmodule Swarm.Tracker do
         end
         # update our local clock to match remote clock
         state = %{state | clock: clock}
-        log "finished sync and sent acknowledgement to #{node(from)}"
+        log :info, "finished sync and sent acknowledgement to #{node(from)}"
         # clear any pending sync requests to prevent blocking
         {:resolve_pending_sync_requests, state, parent, debug, pending_requests}
       # Something weird happened during sync, so try a different node,
@@ -320,7 +328,7 @@ defmodule Swarm.Tracker do
       # again, but that's fine as this is effectively a retry
       {:sync_err, from} when length(nodes) > 0 ->
         debug = handle_debug(debug, {:in, {:sync_err, from}, from})
-        log "sync error, choosing a new node to sync with"
+        warn "sync error, choosing a new node to sync with"
         # we need to choose a different node to sync with and try again
         new_sync_node = Enum.random(nodes)
         GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
@@ -331,7 +339,7 @@ defmodule Swarm.Tracker do
       # so we're the sync node now
       {:sync_err, from} ->
         debug = handle_debug(debug, {:in, {:sync_err, from}, from})
-        log "sync error, and no other available sync targets, becoming seed node"
+        warn "sync error, and no other available sync targets, becoming seed node"
         {:resolve_pending_sync_requests, %{state | clock: ITC.seed()}, parent, debug, pending_requests}
       # Incoming sync request from our target node, in other words, A is trying to sync with B,
       # and B is trying to sync with A - we need to break the deadlock
@@ -339,25 +347,25 @@ defmodule Swarm.Tracker do
         debug = handle_debug(debug, {:in, msg, from})
         # 20d, I mean why not?
         die = :rand.uniform(20)
-        log "there is a tie between syncing nodes, breaking with die roll (#{die}).."
+        log :info, "there is a tie between syncing nodes, breaking with die roll (#{die}).."
         msg = {:sync_break_tie, self(), die}
         send(from, {:sync_break_tie, self(), die})
         debug = handle_debug(debug, {:out, msg, from})
         {:sync_tiebreaker, state, parent, debug, {sync_node, die, pending_requests}}
       {:'$gen_cast', {:sync, from}} = msg ->
         debug = handle_debug(debug, {:in, msg, from})
-        log "pending sync request from #{node(from)}"
+        log :info, "pending sync request from #{node(from)}"
         syncing(state, parent, debug, {sync_node, Enum.uniq([from|pending_requests])})
     after 30_000 ->
-        log "failed to sync with #{sync_node} after 30s, selecting a new node and retrying"
+        warn "failed to sync with #{sync_node} after 30s, selecting a new node and retrying"
         case nodes -- [sync_node] do
           [] ->
-            log "no other nodes to sync with, becoming seed node"
+            log :info, "no other nodes to sync with, becoming seed node"
             new_state = %{state | clock: ITC.seed(), nodes: [], ring: Ring.remove_node(ring, sync_node)}
             {:resolve_pending_sync_requests, new_state, parent, debug, pending_requests}
           nodes ->
             new_sync_node = Enum.random(nodes)
-            log "selected new sync node #{new_sync_node}"
+            log :info, "selected new sync node #{new_sync_node}"
             GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
             debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, new_sync_node}})
             new_state = %{state | nodes: nodes, ring: Ring.remove_node(ring, sync_node)}
@@ -376,18 +384,18 @@ defmodule Swarm.Tracker do
         extra = {:sync_tiebreaker, state, {sync_node, die, pending_requests}}
         :sys.handle_system_msg(request, from, parent, __MODULE__, debug, extra)
       {:EXIT, ^parent, reason} ->
-        log "exiting: #{inspect reason}"
+        warn "exiting: #{inspect reason}"
         exit(reason)
       {:nodedown, ^sync_node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         # welp, guess we'll try a new node
         case nodes -- [sync_node] do
           [] ->
-            log "sync with #{sync_node} cancelled: nodedown, no other nodes available, so becoming seed"
+            log :info, "sync with #{sync_node} cancelled: nodedown, no other nodes available, so becoming seed"
             new_state = %{state | nodes: [], ring: Ring.remove_node(state.ring, sync_node)}
             {:resolve_pending_sync_requests, new_state, parent, debug, pending_requests}
           nodes ->
-            log "sync with #{sync_node} cancelled: nodedown, retrying with a new node"
+            log :info, "sync with #{sync_node} cancelled: nodedown, retrying with a new node"
             sync_node = Enum.random(nodes)
             GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
             debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, sync_node}})
@@ -396,13 +404,13 @@ defmodule Swarm.Tracker do
         end
       {:sync_break_tie, from, die2} = msg when die2 > die or (die2 == die and node(from) > node(self)) ->
         debug = handle_debug(debug, {:in, msg, from})
-        log "#{node(from)} won the die roll (#{die2} vs #{die}), waiting for payload.."
+        log :info, "#{node(from)} won the die roll (#{die2} vs #{die}), waiting for payload.."
         # The other node won the die roll, either by a greater die roll, or the absolute
         # tie breaker of node ordering
         {:syncing, state, parent, debug, {sync_node, pending_requests}}
       {:sync_break_tie, from, die2} = msg ->
         debug = handle_debug(debug, {:in, msg, from})
-        log "we won the die roll (#{die} vs #{die2}), sending payload.."
+        log :info, "we won the die roll (#{die} vs #{die2}), sending payload.."
         # This is the new seed node
         {clock, rclock} = ITC.fork(ITC.seed())
         send(from, {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)})
@@ -416,14 +424,14 @@ defmodule Swarm.Tracker do
   # and cleans up pending sync requests from remote nodes
   @doc false
   def resolve_pending_sync_requests(state, parent, debug, []) do
-    log "pending sync requests cleared"
+    log :info, "pending sync requests cleared"
     {:tracking, state, parent, debug}
   end
   def resolve_pending_sync_requests(%TrackerState{} = state, parent, debug, [pid|pending]) do
     pending_node = node(pid)
     cond do
       Enum.member?(state.nodes, pending_node) ->
-        log "clearing pending sync request for #{pending_node}"
+        log :info, "clearing pending sync request for #{pending_node}"
         {lclock, rclock} = ITC.fork(state.clock)
         send(pid, {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)})
         debug = handle_debug(debug, {:out, {:sync_recv, self(), rclock, :swarm_registry}, pid})
@@ -445,11 +453,11 @@ defmodule Swarm.Tracker do
         sys_state = {:waiting, state, {{reply, remote_node}, next_state, next_state_extra}}
         :sys.handle_system_msg(request, from, parent, __MODULE__, debug, sys_state)
       {:EXIT, ^parent, reason} ->
-        log "exiting: #{inspect reason}"
+        warn "exiting: #{inspect reason}"
         exit(reason)
       {^reply, ^remote_node} = msg ->
         debug = handle_debug(debug, {:in, msg})
-        log "wait for #{inspect reply} from #{remote_node} complete"
+        log :info, "wait for #{inspect reply} from #{remote_node} complete"
         {next_state, state, parent, debug, next_state_extra}
       {:nodedown, ^remote_node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
@@ -460,6 +468,7 @@ defmodule Swarm.Tracker do
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
+            log :info, "nodedown: #{node}"
             new_state = %{state | nodes: state.nodes -- [node], ring: Ring.remove_node(state.ring, node)}
             waiting(new_state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
           ignore_node?(node) ->
@@ -475,11 +484,12 @@ defmodule Swarm.Tracker do
           ignore_node?(node) ->
             waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
           :else ->
+            log :info, "nodeup: #{node}"
             new_state = %{state | nodes: [node|state.nodes], ring: Ring.add_node(state.ring, node)}
             waiting(new_state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
         end
     after 1_000 ->
-        log "waiting for #{inspect reply} from #{remote_node}.."
+        log :info, "waiting for #{inspect reply} from #{remote_node}.."
         waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
     end
   end
@@ -497,7 +507,7 @@ defmodule Swarm.Tracker do
         :sys.handle_system_msg(request, from, parent, __MODULE__, debug, {:tracking, state, extra})
       # Parent supervisor is telling us to exit
       {:EXIT, ^parent, reason} ->
-        log "exiting: #{inspect reason}"
+        warn "exiting: #{inspect reason}"
         exit(reason)
       # Task started by the tracker exited
       {:EXIT, _child, _reason} ->
@@ -551,7 +561,7 @@ defmodule Swarm.Tracker do
   end
   def anti_entropy(%TrackerState{nodes: nodes} = state, parent, debug, nil) do
     sync_node = Enum.random(nodes)
-    log "syncing with #{sync_node}"
+    log :info, "syncing with #{sync_node}"
     GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
     debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, sync_node}})
     {:anti_entropy, state, parent, debug, {sync_node, :erlang.timestamp()}}
@@ -561,7 +571,7 @@ defmodule Swarm.Tracker do
       {:system, from, request} ->
         :sys.handle_system_msg(request, from, parent, __MODULE__, debug, {:anti_entropy, state, {sync_node, start_time}})
       {:EXIT, ^parent, reason} ->
-        log "exiting: #{inspect reason}"
+        warn "exiting: #{inspect reason}"
         exit(reason)
       {:nodedown, ^sync_node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
@@ -571,6 +581,7 @@ defmodule Swarm.Tracker do
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
+            log :info, "nodedown: #{node}"
             new_state = %{state | nodes: nodes -- [node], ring: Ring.remove_node(state.ring, node)}
             anti_entropy(new_state, parent, debug, {sync_node, start_time})
           ignore_node?(node) ->
@@ -586,18 +597,19 @@ defmodule Swarm.Tracker do
           ignore_node?(node) ->
             anti_entropy(state, parent, debug, {sync_node, start_time})
           :else ->
+            log :info, "nodeup: #{node}"
             new_state = %{state | nodes: [node|state.nodes], ring: Ring.add_node(state.ring, node)}
             anti_entropy(new_state, parent, debug, {sync_node, start_time})
         end
       {:sync, node} = msg ->
         debug = handle_debug(debug, {:in, msg})
-        log "received sync request from #{node}, sending registry.."
+        log :info, "received sync request from #{node}, sending registry.."
         send({__MODULE__, sync_node}, {:sync_recv, self(), ITC.peek(state.clock), :ets.tab2list(:swarm_registry)})
         debug = handle_debug(debug, {:out, {:sync_recv, self(), ITC.peek(state.clock), :swarm_registry}})
         anti_entropy(state, parent, debug, {sync_node, start_time})
       {:sync_recv, from, _rclock, registry} = msg ->
         debug = handle_debug(debug, {:in, msg, from})
-        log "received registry from #{sync_node}, checking.."
+        log :info, "received registry from #{sync_node}, checking.."
         # let remote node know we've got the registry
         send(from, {:sync_ack, Node.self})
         debug = handle_debug(debug, {:out, {:sync_ack, Node.self}, from})
@@ -685,7 +697,7 @@ defmodule Swarm.Tracker do
               end
           end
         end)
-        log "completed in #{Float.round(:timer.now_diff(:erlang.timestamp(), start_time)/1_000)}"
+        log :info, "completed in #{Float.round(:timer.now_diff(:erlang.timestamp(), start_time)/1_000)}"
         {:tracking, new_state, parent, debug}
     end
   end
@@ -722,7 +734,7 @@ defmodule Swarm.Tracker do
       :else ->
         case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
           {:ok, _} ->
-            log "nodeup #{node}"
+            log :info, "nodeup #{node}"
             new_state = %{state | nodes: [node|nodes], ring: Ring.add_node(ring, node)}
             {:topology_change, new_state, parent, debug, {:nodeup, node, next_state, next_state_extra}}
           _ ->
@@ -737,7 +749,7 @@ defmodule Swarm.Tracker do
   def nodedown(%TrackerState{nodes: nodes, ring: ring} = state, parent, debug, {node, next_state, next_state_extra}) do
     cond do
       Enum.member?(nodes, node) ->
-        log "nodedown #{node}"
+        log :info, "nodedown #{node}"
         ring = Ring.remove_node(ring, node)
         new_state = %{state | nodes: nodes -- [node], ring: ring}
         {:topology_change, new_state, parent, debug, {:nodedown, node, next_state, next_state_extra}}
@@ -843,7 +855,7 @@ defmodule Swarm.Tracker do
             state.clock
         end
     end, state.clock, :swarm_registry)
-    log "topology change complete"
+    log :info, "topology change complete"
     {next_state, %{state | clock: clock}, parent, debug, next_extra}
   end
 

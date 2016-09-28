@@ -66,7 +66,7 @@ defmodule Swarm.Nodes do
     receive do
       {^pid, :data, :out, data} ->
         case Application.get_env(:logger, :level, :warn) do
-          :debug ->
+          l when l in [:debug, :info] ->
             IO.puts data
           _ ->
             :ok

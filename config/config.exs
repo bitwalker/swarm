@@ -5,7 +5,7 @@ config :swarm,
   autocluster: false
 
 config :logger,
-  level: :warn
+  level: :info
 
 config :porcelain,
   goon_warn_if_missing: false

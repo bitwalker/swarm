@@ -323,8 +323,8 @@ defmodule Swarm.Tracker do
         log "sync error, choosing a new node to sync with"
         # we need to choose a different node to sync with and try again
         new_sync_node = Enum.random(nodes)
-        GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
-        debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, sync_node}})
+        GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
+        debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, new_sync_node}})
         syncing(state, parent, debug, {new_sync_node, pending_requests})
       # Something went wrong during sync, but there are no other nodes to sync with,
       # not even the original sync node (which probably implies it shutdown or crashed),

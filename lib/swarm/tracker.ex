@@ -337,26 +337,13 @@ defmodule Swarm.Tracker do
       # and B is trying to sync with A - we need to break the deadlock
       {:'$gen_cast', {:sync, from}} = msg when node(from) == sync_node ->
         debug = handle_debug(debug, {:in, msg, from})
-        log "received sync request during initial sync"
-        cond do
-          # Well shit, we can't pass the request off to another node, so let's roll a die
-          # to choose who will sync with who.
-          length(nodes) == 1 ->
-            # 20d, I mean why not?
-            die = :rand.uniform(20)
-            log "there is a tie between syncing nodes, breaking with die roll (#{die}).."
-            msg = {:sync_break_tie, self(), die}
-            send(from, {:sync_break_tie, self(), die})
-            debug = handle_debug(debug, {:out, msg, from})
-            {:sync_tiebreaker, state, parent, debug, {sync_node, die, pending_requests}}
-          :else ->
-            log "rejecting sync request since we're still in initial sync"
-            # there are other nodes, tell the requesting node to choose another node to sync with
-            # and then we'll sync with them
-            send(from, {:sync_err, self()})
-            debug = handle_debug(debug, {:out, {:sync_err, self()}, from})
-            syncing(state, parent, debug, {sync_node, pending_requests})
-        end
+        # 20d, I mean why not?
+        die = :rand.uniform(20)
+        log "there is a tie between syncing nodes, breaking with die roll (#{die}).."
+        msg = {:sync_break_tie, self(), die}
+        send(from, {:sync_break_tie, self(), die})
+        debug = handle_debug(debug, {:out, msg, from})
+        {:sync_tiebreaker, state, parent, debug, {sync_node, die, pending_requests}}
       {:'$gen_cast', {:sync, from}} = msg ->
         debug = handle_debug(debug, {:in, msg, from})
         log "pending sync request from #{node(from)}"
@@ -418,8 +405,8 @@ defmodule Swarm.Tracker do
         log "we won the die roll (#{die} vs #{die2}), sending payload.."
         # This is the new seed node
         {clock, rclock} = ITC.fork(ITC.seed())
-        send(from, {:sync_recv, self(), rclock, []})
-        debug = handle_debug(debug, {:out, {:sync_recv, self(), rclock, []}, from})
+        send(from, {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)})
+        debug = handle_debug(debug, {:out, {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)}, from})
         extra = {{:sync_ack, sync_node}, :resolve_pending_sync_requests, pending_requests}
         {:waiting, %{state | clock: clock}, parent, debug, extra}
     end

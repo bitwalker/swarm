@@ -77,13 +77,23 @@ defmodule Swarm.Registry do
     end
   end
 
+  @spec get_by_pid(pid) :: :undefined | [Entry.entry]
   def get_by_pid(pid) do
     case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: pid, ref: :'$2', meta: :'$3', clock: :'$4')) do
-      []    -> :undefined
+      [] -> :undefined
+      list when is_list(list) -> list
+    end
+  end
+
+  @spec get_by_pid_and_name(pid(), term()) :: :undefined | Entry.entry
+  def get_by_pid_and_name(pid, name) do
+    case :ets.match_object(:swarm_registry, entry(name: name, pid: pid, ref: :'$2', meta: '$3', clock: :'$4')) do
+      [] -> :undefined
       [obj] -> obj
     end
   end
 
+  @spec get_by_ref(reference()) :: :undefined | Entry.entry
   def get_by_ref(ref) do
     case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: :'$2', ref: ref, meta: :'$3', clock: :'$4')) do
       []    -> :undefined
@@ -91,17 +101,19 @@ defmodule Swarm.Registry do
     end
   end
 
+  @spec get_by_meta(term()) :: :undefined | [Entry.entry]
   def get_by_meta(key) do
     case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => :'$4'}, clock: :'$5')) do
       []    -> :undefined
-      [obj] -> obj
+      list when is_list(list) -> list
     end
   end
 
+  @spec get_by_meta(term(), term()) :: :undefined | [Entry.entry]
   def get_by_meta(key, value) do
     case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => value}, clock: :'$4')) do
       []    -> :undefined
-      [obj] -> obj
+      list when is_list(list) -> list
     end
   end
 

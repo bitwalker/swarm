@@ -327,6 +327,7 @@ defmodule Swarm.Tracker do
         # somebody is sending us a thing which expects an ack, but we no longer care about it
         # we should reply even though we're dropping this message
         send(from, {:sync_ack, Node.self})
+        syncing(state, parent, debug, {sync_node, pending_requests})
       # Something weird happened during sync, so try a different node,
       # with this implementation, we *could* end up selecting the same node
       # again, but that's fine as this is effectively a retry
@@ -496,6 +497,7 @@ defmodule Swarm.Tracker do
         # somebody is sending us a thing which expects an ack,
         # we should reply even though we're dropping this message
         send(from, {:sync_ack, Node.self})
+        waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
     after 10_000 ->
         warn "cancelling wait for #{inspect reply} from #{remote_node}, moving on to #{next_state}"
         {next_state, state, parent, debug, next_state_extra}
@@ -556,6 +558,7 @@ defmodule Swarm.Tracker do
         # somebody is sending us a thing which expects an ack,
         # we should reply even though we're dropping this message
         send(from, {:sync_ack, Node.self})
+        tracking(state, parent, debug, extra)
       msg ->
         debug = handle_debug(debug, {:in, msg})
         log "unexpected message: #{inspect msg}"
@@ -875,15 +878,21 @@ defmodule Swarm.Tracker do
   @doc false
   def handle_event(%TrackerState{clock: clock} = state, parent, debug, {{:track, name, pid, meta}, _from, rclock}) do
     log "replicating registration for #{inspect name} (#{inspect pid}) locally"
-    case Registry.get_by_pid(pid) do
+    case Registry.get_by_pid_and_name(pid, name) do
       entry(name: ^name, pid: ^pid, meta: ^meta) ->
-        # We already track this pid
+        # We're already up to date
         {:tracking, state, parent, debug}
       entry(name: ^name, pid: ^pid, meta: lmeta) ->
-        # We already track this pid, but the meta is outdated
+        # We don't have the same view of the metadata
         cond do
           ITC.leq(clock, rclock) ->
+            # The remote version is dominant
             new_meta = Map.merge(lmeta, meta)
+            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}])
+            {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
+          ITC.leq(rclock, clock) ->
+            # The local version is dominant
+            new_meta = Map.merge(meta, lmeta)
             :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}])
             {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
           :else ->
@@ -891,42 +900,34 @@ defmodule Swarm.Tracker do
             {:tracking, state, parent, debug}
         end
       :undefined ->
-        cond do
-          ITC.leq(clock, rclock) ->
-            ref = Process.monitor(pid)
-            :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: rclock))
-            {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
-          :else ->
-            warn "received track event for #{inspect name}, but local clock conflicts with remote clock, event unhandled"
-            # TODO: Handle conflict?
-            {:tracking, state, parent, debug}
-        end
+        ref = Process.monitor(pid)
+        :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: rclock))
+        {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
     end
   end
   def handle_event(%TrackerState{clock: clock} = state, parent, debug, {{:untrack, pid}, _from, rclock}) do
     log "event: untrack #{inspect pid}"
-    cond do
-      ITC.leq(clock, rclock) ->
-        case Registry.get_by_pid(pid) do
-          :undefined ->
-            {:tracking, state, parent, debug}
-          entry(ref: ref, clock: lclock) = obj ->
-            cond do
-              ITC.leq(lclock, rclock) ->
-                # registration came before unregister, so remove the registration
-                Process.demonitor(ref, [:flush])
-                :ets.delete_object(:swarm_registry, obj)
-                {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
-              :else ->
-                # registration is newer than de-registration, ignore msg
-                log "untrack is causally dominated by track for #{inspect pid}, ignoring.."
-                {:tracking, state, parent, debug}
-            end
-        end
-      :else ->
-        warn "received untrack event, but local clock conflicts with remote clock, event unhandled"
-        # Handle conflict?
+    case Registry.get_by_pid(pid) do
+      :undefined ->
         {:tracking, state, parent, debug}
+      entries when is_list(entries) ->
+        new_clock = Enum.reduce(entries, clock, fn entry(ref: ref, clock: lclock) = obj, nclock ->
+          cond do
+            ITC.leq(lclock, rclock) ->
+              # registration came before unregister, so remove the registration
+              Process.demonitor(ref, [:flush])
+              :ets.delete_object(:swarm_registry, obj)
+              ITC.event(nclock)
+            ITC.leq(rclock, lclock) ->
+              # registration is newer than de-registration, ignore msg
+              log "untrack is causally dominated by track for #{inspect pid}, ignoring.."
+              nclock
+            :else ->
+              log "untrack is causally conflicted with track for #{inspect pid}, ignoring.."
+              nclock
+          end
+        end)
+        {:tracking, %{state | clock: new_clock}, parent, debug}
     end
   end
   def handle_event(%TrackerState{clock: clock} = state, parent, debug, {{:add_meta, key, value, pid}, _from, rclock}) do
@@ -934,22 +935,35 @@ defmodule Swarm.Tracker do
     case Registry.get_by_pid(pid) do
       :undefined ->
         {:tracking, state, parent, debug}
-      entry(name: name, meta: old_meta, clock: lclock) ->
-        cond do
-          ITC.leq(lclock, rclock) ->
-            new_meta = Map.put(old_meta, key, value)
-            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
-            {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
-          :else ->
-            # we're going to take the last-writer wins approach for resolution for now
-            new_meta = Map.merge(old_meta, %{key => value})
-            # we're going to keep our local clock though and re-broadcast the update to ensure we converge
-            clock = ITC.event(clock)
-            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(clock)}])
-            log "conflicting meta for #{inspect name}, updating and notifying other nodes"
-            broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
-            {:tracking, %{state | clock: clock}, parent, debug}
-        end
+      entries when is_list(entries) ->
+        new_clock = Enum.reduce(entries, clock, fn entry(name: name, meta: old_meta, clock: lclock), nclock ->
+          cond do
+            ITC.leq(lclock, rclock) ->
+              new_meta = Map.put(old_meta, key, value)
+              :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
+              nclock = ITC.event(nclock)
+            ITC.leq(rclock, lclock) ->
+              cond do
+                Map.has_key?(old_meta, key) ->
+                  log "request to add meta to #{inspect pid} (#{inspect {key, value}}) is causally dominated by local, ignoring.."
+                  nclock
+                :else ->
+                  new_meta = Map.put(old_meta, key, value)
+                  :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
+                  nclock = ITC.event(nclock)
+              end
+            :else ->
+              # we're going to take the last-writer wins approach for resolution for now
+              new_meta = Map.merge(old_meta, %{key => value})
+              # we're going to keep our local clock though and re-broadcast the update to ensure we converge
+              nclock = ITC.event(clock)
+              :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(nclock)}])
+              log "conflicting meta for #{inspect name}, updating and notifying other nodes"
+              broadcast_event(state.nodes, ITC.peek(nclock), {:update_meta, new_meta, pid})
+              nclock
+          end
+        end)
+        {:tracking, %{state | clock: new_clock}, parent, debug}
     end
   end
   def handle_event(%TrackerState{clock: clock} = state, parent, debug, {{:update_meta, new_meta, pid}, _from, rclock}) do
@@ -957,21 +971,29 @@ defmodule Swarm.Tracker do
     case Registry.get_by_pid(pid) do
       :undefined ->
         {:tracking, state, parent, debug}
-      entry(name: name, meta: old_meta, clock: lclock) ->
-        cond do
-          ITC.leq(lclock, rclock) ->
-            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
-            {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
-          :else ->
-            # we're going to take the last-writer wins approach for resolution for now
-            new_meta = Map.merge(old_meta, new_meta)
-            # we're going to keep our local clock though and re-broadcast the update to ensure we converge
-            clock = ITC.event(clock)
-            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(clock)}])
-            log "conflicting meta for #{inspect name}, updating and notifying other nodes"
-            broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
-            {:tracking, %{state | clock: clock}, parent, debug}
-        end
+      entries when is_list(entries) ->
+        new_clock = Enum.reduce(entries, clock, fn entry(name: name, meta: old_meta, clock: lclock), nclock ->
+          cond do
+            ITC.leq(lclock, rclock) ->
+              meta = Map.merge(old_meta, new_meta)
+              :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, meta}, {entry(:clock)+1, rclock}])
+              ITC.event(nclock)
+            ITC.leq(rclock, lclock) ->
+              meta = Map.merge(new_meta, old_meta)
+              :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, meta}, {entry(:clock)+1, rclock}])
+              ITC.event(nclock)
+            :else ->
+              # we're going to take the last-writer wins approach for resolution for now
+              new_meta = Map.merge(old_meta, new_meta)
+              # we're going to keep our local clock though and re-broadcast the update to ensure we converge
+              nclock = ITC.event(nclock)
+              :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(nclock)}])
+              log "conflicting meta for #{inspect name}, updating and notifying other nodes"
+              broadcast_event(state.nodes, ITC.peek(nclock), {:update_meta, new_meta, pid})
+              nclock
+          end
+        end)
+        {:tracking, %{state | clock: new_clock}, parent, debug}
     end
   end
   def handle_event(%TrackerState{clock: clock} = state, parent, debug, {{:remove_meta, key, pid}, _from, rclock}) do
@@ -979,17 +1001,27 @@ defmodule Swarm.Tracker do
     case Registry.get_by_pid(pid) do
       :undefined ->
         {:tracking, state, parent, debug}
-      entry(name: name, meta: meta, clock: lclock) ->
-        cond do
-          ITC.leq(lclock, rclock) ->
-            new_meta = Map.drop(meta, [key])
-            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
-            {:tracking, %{state | clock: ITC.event(clock)}, parent, debug}
-          :else ->
-            warn "received remove_meta event, but local clock conflicts with remote clock, event unhandled"
-            # Handle conflict?
-            {:tracking, state, parent, debug}
-        end
+      entries when is_list(entries) ->
+        new_clock = Enum.reduce(entries, clock, fn entry(name: name, meta: meta, clock: lclock), nclock ->
+          cond do
+            ITC.leq(lclock, rclock) ->
+              new_meta = Map.drop(meta, [key])
+              :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, rclock}])
+              ITC.event(nclock)
+            ITC.leq(rclock, lclock) and Map.has_key?(meta, key) ->
+              # ignore the request, as the local clock dominates the remote
+              nclock
+            ITC.leq(rclock, lclock) ->
+              # local dominates the remote, but the key is not present anyway
+              nclock
+            Map.has_key?(meta, key) ->
+              warn "received remove_meta event, but local clock conflicts with remote clock, event unhandled"
+              nclock
+            :else ->
+              nclock
+          end
+        end)
+        {:tracking, %{state | clock: new_clock}, parent, debug}
     end
   end
 
@@ -1053,7 +1085,7 @@ defmodule Swarm.Tracker do
           :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
           GenServer.reply(from, {:ok, pid})
         {:error, {:already_registered, pid}} = err ->
-          case Registry.get_by_pid(pid) do
+          case Registry.get_by_pid_and_name(pid, name) do
             :undefined ->
               log "#{inspect name} already registered to #{inspect pid} on #{remote_node}, but missing locally"
               ref = Process.monitor(pid)
@@ -1121,9 +1153,9 @@ defmodule Swarm.Tracker do
 
   # Called when a pid dies, and the monitor is triggered
   @doc false
-  def handle_monitor(%TrackerState{nodes: nodes, ring: ring} = state, parent, debug, {_ref, pid, :noconnection}) do
+  def handle_monitor(%TrackerState{nodes: nodes, ring: ring} = state, parent, debug, {ref, pid, :noconnection}) do
     # lost connection to the node this pid is running on, check if we should restart it
-    case Registry.get_by_pid(pid) do
+    case Registry.get_by_ref(ref) do
       :undefined ->
         {:tracking, state, parent, debug}
       entry(name: name, pid: ^pid, meta: %{mfa: {m,f,a}}) = obj ->
@@ -1151,14 +1183,14 @@ defmodule Swarm.Tracker do
         {:tracking, state, parent, debug}
     end
   end
-  def handle_monitor(%TrackerState{} = state, parent, debug, {_ref, pid, reason}) do
-    case Registry.get_by_pid(pid) do
+  def handle_monitor(%TrackerState{} = state, parent, debug, {ref, pid, reason}) do
+    case Registry.get_by_ref(ref) do
       :undefined ->
         {:tracking, state, parent, debug}
       entry(name: name, pid: ^pid) = obj ->
-        log "#{inspect name} (#{inspect pid}) is down: #{inspect reason}"
-        {:noreply, state} = remove_registration(state, obj)
-        {:tracking, state, parent, debug}
+        log "#{inspect name} is down: #{inspect reason}"
+        {:noreply, new_state} = remove_registration(state, obj)
+        {:tracking, new_state, parent, debug}
     end
   end
 
@@ -1255,12 +1287,15 @@ defmodule Swarm.Tracker do
       :undefined ->
         broadcast_event(state.nodes, ITC.peek(clock), {:untrack, pid})
         {:noreply, state}
-      entry(ref: ref) = obj ->
-        Process.demonitor(ref, [:flush])
-        :ets.delete_object(:swarm_registry, obj)
-        clock = ITC.event(clock)
-        broadcast_event(state.nodes, ITC.peek(clock), {:untrack, pid})
-        {:noreply, %{state | clock: clock}}
+      entries when is_list(entries) ->
+        new_clock = Enum.reduce(entries, clock, fn entry(ref: ref) = obj, nclock ->
+          Process.demonitor(ref, [:flush])
+          :ets.delete_object(:swarm_registry, obj)
+          nclock = ITC.event(nclock)
+          broadcast_event(state.nodes, ITC.peek(nclock), {:untrack, pid})
+          nclock
+        end)
+        {:noreply, %{state | clock: new_clock}}
     end
   end
 
@@ -1269,12 +1304,15 @@ defmodule Swarm.Tracker do
       :undefined ->
         broadcast_event(state.nodes, ITC.peek(clock), {:add_meta, key, value, pid})
         {:noreply, state}
-      entry(name: name, meta: old_meta) ->
-        new_meta = Map.put(old_meta, key, value)
-        clock = ITC.event(clock)
-        :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(clock)}])
-        broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
-        {:noreply, %{state | clock: clock}}
+      entries when is_list(entries) ->
+        new_clock = Enum.reduce(entries, clock, fn entry(name: name, meta: old_meta), nclock ->
+          new_meta = Map.put(old_meta, key, value)
+          nclock = ITC.event(nclock)
+          :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(nclock)}])
+          broadcast_event(state.nodes, ITC.peek(nclock), {:update_meta, new_meta, pid})
+          nclock
+        end)
+        {:noreply, %{state | clock: new_clock}}
     end
   end
 
@@ -1282,22 +1320,25 @@ defmodule Swarm.Tracker do
     case Registry.get_by_pid(pid) do
       :undefined ->
         broadcast_event(state.nodes, ITC.peek(clock), {:remove_meta, key, pid})
-      entry(name: name, meta: old_meta) ->
-        new_meta = Map.drop(old_meta, [key])
-        :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(clock)}])
-        clock = ITC.event(clock)
-        broadcast_event(state.nodes, ITC.peek(clock), {:update_meta, new_meta, pid})
-        {:noreply, %{state | clock: clock}}
+      entries when is_list(entries) ->
+        new_clock = Enum.reduce(entries, clock, fn entry(name: name, meta: old_meta), nclock ->
+          new_meta = Map.drop(old_meta, [key])
+          nclock = ITC.event(nclock)
+          :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}, {entry(:clock)+1, ITC.peek(nclock)}])
+          broadcast_event(state.nodes, ITC.peek(nclock), {:update_meta, new_meta, pid})
+          nclock
+        end)
+        {:noreply, %{state | clock: new_clock}}
     end
   end
 
   @default_blacklist [~r/^remsh.*$/]
   # The list of configured ignore patterns for nodes
   # This is only applied if no whitelist is provided.
-  defp ignored_node_patterns(), do: Application.get_env(:swarm, :node_blacklist, @default_blacklist)
+  defp node_blacklist(), do: Application.get_env(:swarm, :node_blacklist, @default_blacklist)
   # The list of configured whitelist patterns for nodes
   # If a whitelist is provided, any nodes which do not match the whitelist are ignored
-  defp whitelist_node_patterns(), do: Application.get_env(:swarm, :node_whitelist, [])
+  defp node_whitelist(), do: Application.get_env(:swarm, :node_whitelist, [])
 
   # Determine if a node should be ignored, even if connected
   # The whitelist and blacklist can contain literal strings, regexes, or regex strings
@@ -1305,40 +1346,8 @@ defmodule Swarm.Tracker do
   # where the node name of the remote shell starts with `remsh` (relx, exrm, and distillery)
   # all use that prefix for remote shells.
   defp ignore_node?(node) do
-    node_s    = Atom.to_string(node)
-    blacklist = ignored_node_patterns()
-    whitelist = whitelist_node_patterns()
-    cond do
-      is_list(whitelist) and length(whitelist) > 0 ->
-        Enum.any?(whitelist, fn
-          ^node_s ->
-            false
-          %Regex{} = pattern ->
-            not Regex.match?(pattern, node_s)
-          pattern when is_binary(pattern) ->
-            case Regex.compile(pattern) do
-              {:ok, rx} ->
-                not Regex.match?(rx, node_s)
-              {:error, reason} ->
-                warn "invalid whitelist pattern (#{inspect pattern}): #{inspect reason}"
-                true
-            end
-        end)
-      :else ->
-        Enum.any?(blacklist, fn
-          ^node_s ->
-            true
-          %Regex{} = pattern ->
-            Regex.match?(pattern, node_s)
-          pattern when is_binary(pattern) ->
-            case Regex.compile(pattern) do
-              {:ok, rx} ->
-                Regex.match?(rx, node_s)
-              {:error, reason} ->
-                warn "invalid ignore_node_pattern (#{inspect pattern}): #{inspect reason}"
-                false
-            end
-        end)
-    end
+    blacklist = node_blacklist()
+    whitelist = node_whitelist()
+    HashRing.Utils.ignore_node?(node, blacklist, whitelist)
   end
 end

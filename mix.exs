@@ -12,6 +12,7 @@ defmodule Swarm.Mixfile do
      package: package,
      docs: docs(),
      deps: deps(),
+     aliases: aliases(),
      dialyzer: [
        plt_add_apps: [:inets],
        plt_add_deps: :transitive,
@@ -46,6 +47,10 @@ defmodule Swarm.Mixfile do
      extras: [
        "README.md"
      ]]
+  end
+
+  defp aliases() do
+    ["test": "test --no-start --trace --seed=0"]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]

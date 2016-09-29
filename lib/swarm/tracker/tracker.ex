@@ -496,9 +496,9 @@ defmodule Swarm.Tracker do
         # somebody is sending us a thing which expects an ack,
         # we should reply even though we're dropping this message
         send(from, {:sync_ack, Node.self})
-    after 1_000 ->
-        log :info, "waiting for #{inspect reply} from #{remote_node}.."
-        waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
+    after 10_000 ->
+        warn "cancelling wait for #{inspect reply} from #{remote_node}, moving on to #{next_state}"
+        {next_state, state, parent, debug, next_state_extra}
     end
   end
 

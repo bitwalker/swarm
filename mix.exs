@@ -11,7 +11,12 @@ defmodule Swarm.Mixfile do
      description: "Easy clustering, with registration and distribution of worker processes.",
      package: package,
      docs: docs(),
-     deps: deps()]
+     deps: deps(),
+     dialyzer: [
+       plt_add_apps: [:inets],
+       plt_add_deps: :transitive,
+       flags: ~w(-Wunmatched_returns -Werror_handling -Wrace_conditions -Wunderspecs)
+     ]]
   end
 
   def application do
@@ -21,6 +26,7 @@ defmodule Swarm.Mixfile do
 
   defp deps do
     [{:ex_doc, "~> 0.13", only: :dev},
+     {:dialyxir, "~> 0.3", only: :dev},
      {:benchee, "~> 0.4", only: :dev},
      {:porcelain, "~> 2.0", only: [:dev, :test]},
      {:libring, "~> 0.1"},

@@ -14,7 +14,7 @@ defmodule Swarm.Tracker do
   """
   import Swarm.Entry
   alias Swarm.IntervalTreeClock, as: ITC
-  alias Swarm.{Registry, Ring}
+  alias Swarm.Registry
 
   defmodule TrackerState do
     defstruct clock: nil,
@@ -111,8 +111,8 @@ defmodule Swarm.Tracker do
     debug = :sys.debug_options(Application.get_env(:swarm, :debug_opts, []))
     # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
-    ring = Enum.reduce(nodelist, Ring.new(Node.self), fn n, r ->
-      Ring.add_node(r, n)
+    ring = Enum.reduce(nodelist, HashRing.new(Node.self), fn n, r ->
+      HashRing.add_node(r, n)
     end)
     state = %TrackerState{nodes: nodelist, ring: ring}
     try do
@@ -158,14 +158,14 @@ defmodule Swarm.Tracker do
             cluster_wait(state, parent, debug, extra)
           :else ->
             log :info, "nodeup: #{node}"
-            cluster_wait(%TrackerState{nodes: [node|nodes], ring: Ring.add_node(ring, node)}, parent, debug, extra)
+            cluster_wait(%TrackerState{nodes: [node|nodes], ring: HashRing.add_node(ring, node)}, parent, debug, extra)
         end
       {:nodedown, node, info} ->
         debug = handle_debug(debug, {:in, {:nodedown, node, info}})
         cond do
           Enum.member?(nodes, node) ->
             log :info, "nodedown: #{node}"
-            cluster_wait(%TrackerState{nodes: nodes -- [node], ring: Ring.remove_node(ring, node)}, parent, debug, extra)
+            cluster_wait(%TrackerState{nodes: nodes -- [node], ring: HashRing.remove_node(ring, node)}, parent, debug, extra)
           ignore_node?(node) ->
             cluster_wait(state, parent, debug, extra)
           :else ->
@@ -246,7 +246,7 @@ defmodule Swarm.Tracker do
             syncing(state, parent, debug, {sync_node, pending_requests})
           :else ->
             log :info, "nodeup: #{node}"
-            new_state = %{state | nodes: [node|nodes], ring: Ring.add_node(ring, node)}
+            new_state = %{state | nodes: [node|nodes], ring: HashRing.add_node(ring, node)}
             syncing(new_state, parent, debug, {sync_node, pending_requests})
         end
       # If our target node goes down, we need to select a new target or become the seed node
@@ -257,7 +257,7 @@ defmodule Swarm.Tracker do
           [] ->
             # there are no other nodes to select, we'll be the seed
             log :info, "no other available nodes, becoming seed node"
-            new_state = %{state | nodes: [], ring: Ring.remove_node(ring, sync_node), clock: ITC.seed()}
+            new_state = %{state | nodes: [], ring: HashRing.remove_node(ring, sync_node), clock: ITC.seed()}
             {:tracking, new_state, parent, debug}
           nodes ->
             new_sync_node = Enum.random(nodes)
@@ -265,7 +265,7 @@ defmodule Swarm.Tracker do
             # Send sync request
             GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
             debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, new_sync_node}})
-            new_state = %{state | nodes: nodes, ring: Ring.remove_node(ring, sync_node)}
+            new_state = %{state | nodes: nodes, ring: HashRing.remove_node(ring, sync_node)}
             syncing(new_state, parent, debug, {new_sync_node, pending_requests})
         end
       # Keep the hash ring up to date if other nodes go down
@@ -274,7 +274,7 @@ defmodule Swarm.Tracker do
         cond do
           Enum.member?(nodes, node) ->
             log :info, "nodedown: #{node}"
-            new_state = %{state | nodes: nodes -- [node], ring: Ring.remove_node(ring, node)}
+            new_state = %{state | nodes: nodes -- [node], ring: HashRing.remove_node(ring, node)}
             syncing(new_state, parent, debug, {sync_node, pending_requests})
           ignore_node?(node) ->
             syncing(state, parent, debug, {sync_node, pending_requests})
@@ -361,14 +361,14 @@ defmodule Swarm.Tracker do
         case nodes -- [sync_node] do
           [] ->
             log :info, "no other nodes to sync with, becoming seed node"
-            new_state = %{state | clock: ITC.seed(), nodes: [], ring: Ring.remove_node(ring, sync_node)}
+            new_state = %{state | clock: ITC.seed(), nodes: [], ring: HashRing.remove_node(ring, sync_node)}
             {:resolve_pending_sync_requests, new_state, parent, debug, pending_requests}
           nodes ->
             new_sync_node = Enum.random(nodes)
             log :info, "selected new sync node #{new_sync_node}"
             GenServer.cast({__MODULE__, new_sync_node}, {:sync, self()})
             debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, new_sync_node}})
-            new_state = %{state | nodes: nodes, ring: Ring.remove_node(ring, sync_node)}
+            new_state = %{state | nodes: nodes, ring: HashRing.remove_node(ring, sync_node)}
             syncing(state, parent, debug, {new_sync_node, pending_requests})
         end
     end
@@ -392,14 +392,14 @@ defmodule Swarm.Tracker do
         case nodes -- [sync_node] do
           [] ->
             log :info, "sync with #{sync_node} cancelled: nodedown, no other nodes available, so becoming seed"
-            new_state = %{state | nodes: [], ring: Ring.remove_node(state.ring, sync_node)}
+            new_state = %{state | nodes: [], ring: HashRing.remove_node(state.ring, sync_node)}
             {:resolve_pending_sync_requests, new_state, parent, debug, pending_requests}
           nodes ->
             log :info, "sync with #{sync_node} cancelled: nodedown, retrying with a new node"
             sync_node = Enum.random(nodes)
             GenServer.cast({__MODULE__, sync_node}, {:sync, self()})
             debug = handle_debug(debug, {:out, {:sync, self()}, {__MODULE__, sync_node}})
-            new_state = %{state | nodes: nodes, ring: Ring.remove_node(state.ring, sync_node)}
+            new_state = %{state | nodes: nodes, ring: HashRing.remove_node(state.ring, sync_node)}
             {:syncing, new_state, parent, debug, {sync_node, pending_requests}}
         end
       {:sync_break_tie, from, die2} = msg when die2 > die or (die2 == die and node(from) > node(self)) ->
@@ -462,14 +462,14 @@ defmodule Swarm.Tracker do
       {:nodedown, ^remote_node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         warn "wait for #{remote_node} cancelled, node went down"
-        new_state = %{state | nodes: state.nodes -- [remote_node], ring: Ring.remove_node(state.ring, remote_node)}
+        new_state = %{state | nodes: state.nodes -- [remote_node], ring: HashRing.remove_node(state.ring, remote_node)}
         {next_state, new_state, parent, debug, next_state_extra}
       {:nodedown, node, _info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         cond do
           Enum.member?(state.nodes, node) ->
             log :info, "nodedown: #{node}"
-            new_state = %{state | nodes: state.nodes -- [node], ring: Ring.remove_node(state.ring, node)}
+            new_state = %{state | nodes: state.nodes -- [node], ring: HashRing.remove_node(state.ring, node)}
             waiting(new_state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
           ignore_node?(node) ->
             waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
@@ -485,7 +485,7 @@ defmodule Swarm.Tracker do
             waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
           :else ->
             log :info, "nodeup: #{node}"
-            new_state = %{state | nodes: [node|state.nodes], ring: Ring.add_node(state.ring, node)}
+            new_state = %{state | nodes: [node|state.nodes], ring: HashRing.add_node(state.ring, node)}
             waiting(new_state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
         end
     after 1_000 ->
@@ -582,7 +582,7 @@ defmodule Swarm.Tracker do
         cond do
           Enum.member?(state.nodes, node) ->
             log :info, "nodedown: #{node}"
-            new_state = %{state | nodes: nodes -- [node], ring: Ring.remove_node(state.ring, node)}
+            new_state = %{state | nodes: nodes -- [node], ring: HashRing.remove_node(state.ring, node)}
             anti_entropy(new_state, parent, debug, {sync_node, start_time})
           ignore_node?(node) ->
             anti_entropy(state, parent, debug, {sync_node, start_time})
@@ -598,7 +598,7 @@ defmodule Swarm.Tracker do
             anti_entropy(state, parent, debug, {sync_node, start_time})
           :else ->
             log :info, "nodeup: #{node}"
-            new_state = %{state | nodes: [node|state.nodes], ring: Ring.add_node(state.ring, node)}
+            new_state = %{state | nodes: [node|state.nodes], ring: HashRing.add_node(state.ring, node)}
             anti_entropy(new_state, parent, debug, {sync_node, start_time})
         end
       {:sync, node} = msg ->
@@ -672,7 +672,7 @@ defmodule Swarm.Tracker do
                   rpid_node    = node(rpid)
                   lpid_node    = node(lpid)
                   current_node = Node.self
-                  target_node  = Ring.key_to_node(state.ring, rname)
+                  target_node  = HashRing.key_to_node(state.ring, rname)
                   cond do
                     target_node == rpid_node and lpid_node != rpid_node ->
                       log "remote and local view of #{inspect rname} conflict, but remote is correct, resolving.."
@@ -735,7 +735,7 @@ defmodule Swarm.Tracker do
         case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
           {:ok, _} ->
             log :info, "nodeup #{node}"
-            new_state = %{state | nodes: [node|nodes], ring: Ring.add_node(ring, node)}
+            new_state = %{state | nodes: [node|nodes], ring: HashRing.add_node(ring, node)}
             {:topology_change, new_state, parent, debug, {:nodeup, node, next_state, next_state_extra}}
           _ ->
             {next_state, state, parent, debug, next_state_extra}
@@ -750,7 +750,7 @@ defmodule Swarm.Tracker do
     cond do
       Enum.member?(nodes, node) ->
         log :info, "nodedown #{node}"
-        ring = Ring.remove_node(ring, node)
+        ring = HashRing.remove_node(ring, node)
         new_state = %{state | nodes: nodes -- [node], ring: ring}
         {:topology_change, new_state, parent, debug, {:nodedown, node, next_state, next_state_extra}}
       ignore_node?(node) ->
@@ -788,7 +788,7 @@ defmodule Swarm.Tracker do
     current_node = Node.self
     clock = :ets.foldl(fn
       entry(name: name, pid: pid, meta: %{mfa: {m,f,a}}) = obj, lclock when node(pid) == current_node ->
-        case Ring.key_to_node(state.ring, name) do
+        case HashRing.key_to_node(state.ring, name) do
           ^current_node ->
             # This process is correct
             lclock
@@ -832,7 +832,7 @@ defmodule Swarm.Tracker do
             lclock
           :else ->
             # pid is dead, we're going to restart it
-            case Ring.key_to_node(state.ring, name) do
+            case HashRing.key_to_node(state.ring, name) do
               ^current_node ->
                 log "restarting #{inspect name} on #{current_node}"
                 {:noreply, state} = remove_registration(%{state | clock: lclock}, obj)
@@ -999,7 +999,7 @@ defmodule Swarm.Tracker do
   defp handle_call({:track, name, m, f, a}, from, %TrackerState{ring: ring} = state) do
     log "registering #{inspect name} as process started by #{m}.#{f}/#{length(a)} with args #{inspect a}"
     current_node = Node.self
-    case Ring.key_to_node(ring, name) do
+    case HashRing.key_to_node(ring, name) do
       ^current_node ->
         case Registry.get_by_name(name) do
           :undefined ->
@@ -1059,9 +1059,9 @@ defmodule Swarm.Tracker do
     catch
       _, {{:nodedown, _}, _} ->
         warn "failed to start #{inspect name} on #{remote_node}: nodedown, retrying operation.."
-        new_state = %{state | nodes: state.nodes -- [remote_node], ring: Ring.remove_node(state.ring, remote_node)}
+        new_state = %{state | nodes: state.nodes -- [remote_node], ring: HashRing.remove_node(state.ring, remote_node)}
         current_node = Node.self
-        case Ring.key_to_node(new_state.ring, name) do
+        case HashRing.key_to_node(new_state.ring, name) do
           ^current_node ->
             handle_call({:track, name, m, f, a}, from, new_state)
           other_node ->
@@ -1121,9 +1121,9 @@ defmodule Swarm.Tracker do
         # for the purposes of this handler, preemptively remove the node from the
         # ring when calculating the new node
         pid_node = node(pid)
-        ring  = Ring.remove_node(ring, pid_node)
+        ring  = HashRing.remove_node(ring, pid_node)
         state = %{state | nodes: nodes -- [pid_node], ring: ring}
-        case Ring.key_to_node(ring, name) do
+        case HashRing.key_to_node(ring, name) do
           ^current_node ->
             log "restarting #{inspect name} (#{inspect pid}) on #{current_node}"
             {:noreply, state}  = remove_registration(state, obj)

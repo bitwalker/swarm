@@ -62,7 +62,7 @@ defmodule Swarm.Registry do
     case get_by_name(name) do
       :undefined -> :ok
       entry(pid: pid) ->
-        GenServer.cast(pid, msg)
+        Kernel.send(pid, msg)
     end
   end
 

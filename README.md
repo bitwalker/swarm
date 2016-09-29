@@ -71,6 +71,26 @@ the token/namespace injected into the pod to form a cluster of nodes based on a 
 autoclustering implementation by setting `autocluster: MyApp.Module` where `MyApp.Module` is an OTP process
 (i.e. `GenServer`, something started with `:proc_lib`, etc.). The implementation must connect nodes with `:net_adm.connect_node/1`.
 
+### Node Blacklisting/Whitelisting
+
+You can explicitly whitelist or blacklist nodes to prevent certain nodes from being included in Swarm's consistent
+hash ring. This is done with either the `node_whitelist` and `node_blacklist` settings respectively. These settings
+must be lists containing either literal strings or valid Elixir regex patterns as either string or regex literals.
+If no whitelist is set, then the blacklist is used, and if no blacklist is provided, the default blacklist includes
+a pattern for ignoring remote shell sessions as named by Relx, ExRM, or Distillery, which is `^remsh.*$`. An example
+config looks like the following:
+
+```elixir
+config :swarm,
+  node_whitelist: [~r/^myapp-[\d]@.*$]
+```
+
+The above will only allow nodes named something like `myapp-1@somehost` to be included in Swarm's clustering. **NOTE**:
+It is important to understand that this does not prevent those nodes from connecting to the cluster, only that Swarm will
+not include those nodes in it's distribution algorithm, or communicate with those nodes.
+
+### Clustering Strategies
+
 The gossip protocol works by multicasting a heartbeat via UDP. The default configuration listens on all host interfaces,
 port 45892, and publishes via the multicast address `230.1.1.251`. These parameters can all be changed via the
 following config settings:
@@ -123,6 +143,20 @@ after it's started, typically in `init/1`, with `Swarm.join/2`. You can then pub
 `Swarm.publish/2`, and/or call all processes in a group and collect results (i.e. `call`) with `Swarm.multi_call/2` or
 `Swarm.multi_call/3`. Leaving a group can be done with `Swarm.leave/2`, but will automatically be done when a process
 dies. Join/leave can be used to do pubsub like things, or perform operations over a group of related processes.
+
+## Debugging/Troubleshooting
+
+By configuring Swarm with `debug: true` and setting Logger's log level to `:debug`, you can get much more
+information about what it is doing during operation to troubleshoot issues. To get even more verbose logs,
+you can configure Swarm's tracing mode via `debug_opts: [:trace]`. These options are valid `:sys` tracing
+options, `:trace` is probably the most useful.
+
+To dump the tracker's state, you can use `:sys.get_state(Swarm.Tracker)` or `:sys.get_status(Swarm.Tracker)`.
+The former will dump the tracker state including what nodes it's tracking, what nodes are in the hash ring,
+and the state of the interval tree clock. The latter will dump more detailed process info, including the current
+function and it's arguments. This is particularly useful if it appears that the tracker is stuck and not doing
+anything. If you do find such things, please gist all of these results and open an issue so that I can fix these
+issues if they arise.
 
 ## Example
 

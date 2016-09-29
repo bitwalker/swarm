@@ -1279,26 +1279,54 @@ defmodule Swarm.Tracker do
     end
   end
 
+  @default_blacklist [~r/^remsh.*$/]
   # The list of configured ignore patterns for nodes
-  defp ignored_node_patterns(), do: Application.get_env(:swarm, :ignore_node_patterns, [~r/^remsh.*/])
+  # This is only applied if no whitelist is provided.
+  defp ignored_node_patterns(), do: Application.get_env(:swarm, :node_blacklist, @default_blacklist)
+  # The list of configured whitelist patterns for nodes
+  # If a whitelist is provided, any nodes which do not match the whitelist are ignored
+  defp whitelist_node_patterns(), do: Application.get_env(:swarm, :node_whitelist, [])
 
   # Determine if a node should be ignored, even if connected
-  # The ignore list can be literal strings, regexes, or regex strings
+  # The whitelist and blacklist can contain literal strings, regexes, or regex strings
+  # By default, all nodes are allowed, except those which are remote shell sessions
+  # where the node name of the remote shell starts with `remsh` (relx, exrm, and distillery)
+  # all use that prefix for remote shells.
   defp ignore_node?(node) do
-    node_s = Atom.to_string(node)
-    Enum.any?(ignored_node_patterns, fn
-      ^node_s ->
-        true
-      %Regex{} = pattern ->
-        Regex.match?(pattern, node_s)
-      pattern when is_binary(pattern) ->
-        case Regex.compile(pattern) do
-          {:ok, rx} ->
-            Regex.match?(rx, node_s)
-          {:error, reason} ->
-            warn "invalid ignore_node_pattern (#{inspect pattern}): #{inspect reason}"
+    node_s    = Atom.to_string(node)
+    blacklist = ignored_node_patterns()
+    whitelist = whitelist_node_patterns()
+    cond do
+      is_list(whitelist) and length(whitelist) > 0 ->
+        Enum.any?(whitelist, fn
+          ^node_s ->
             false
-        end
-    end)
+          %Regex{} = pattern ->
+            not Regex.match?(pattern, node_s)
+          pattern when is_binary(pattern) ->
+            case Regex.compile(pattern) do
+              {:ok, rx} ->
+                not Regex.match?(rx, node_s)
+              {:error, reason} ->
+                warn "invalid whitelist pattern (#{inspect pattern}): #{inspect reason}"
+                true
+            end
+        end)
+      :else ->
+        Enum.any?(blacklist, fn
+          ^node_s ->
+            true
+          %Regex{} = pattern ->
+            Regex.match?(pattern, node_s)
+          pattern when is_binary(pattern) ->
+            case Regex.compile(pattern) do
+              {:ok, rx} ->
+                Regex.match?(rx, node_s)
+              {:error, reason} ->
+                warn "invalid ignore_node_pattern (#{inspect pattern}): #{inspect reason}"
+                false
+            end
+        end)
+    end
   end
 end

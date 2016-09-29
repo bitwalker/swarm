@@ -32,7 +32,7 @@ register_name(Name, Pid) ->
 %% @end
 -spec register_name(term(), atom(), atom(), [term()]) -> {ok, pid()} | {error, term()}.
 register_name(Name, Module, Function, Args) ->
-    ?SWARM:register_name(Name, {Module, Function, Args}).
+    ?SWARM:register_name(Name, Module, Function, Args).
 
 %% @doc Unregisters a name.
 -spec unregister_name(term()) -> ok.

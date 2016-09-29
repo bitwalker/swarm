@@ -23,6 +23,7 @@ defmodule Swarm.Mixfile do
     [{:ex_doc, "~> 0.13", only: :dev},
      {:benchee, "~> 0.4", only: :dev},
      {:porcelain, "~> 2.0", only: [:dev, :test]},
+     {:libring, "~> 0.1"},
      {:poison, "~> 2.2"}]
   end
 

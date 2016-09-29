@@ -11,6 +11,53 @@ defmodule Swarm.Tracker do
   more restricted state machine, which both handles it's sub-states, and enables us to respond to
   certain critical calls from other trackers without blocking, or in the case of events where the
   two trackers are blocking on calls to each other, without deadlocking.
+
+  The following diagram shows the states of the FSM which contain receive loops, or call themselves
+  recursively. These states block until they receive a message which either breaks them out of that
+  state due to external changes (i.e. exits, system messages, node up/down events, timeout), or
+  receive a message which moves them on the next state.
+
+  All of these states handle exit messages, system events, and node up/down notifications. Some of
+  them also handle additional messages to prevent deadlocking two or more instances of the tracker which
+  are communicating with each other synchronously.
+
+  The driver of the FSM is the `change_state` function, a recursive function which continues to loop
+  until it receives an error, or no further states are returned from the state function. States are
+  entered by applying the state name to this module, so state `:waiting` calls `Tracker.waiting`. The
+  last paramter is for extra state/arguments which may be needed by the next state.
+
+  The most dangerous state is `:syncing`, as it hsa the highest potential for deadlocking with another
+  process, or even itself, if things go wrong with the network and are not handled correctly. The current
+  implementation should be resilient against this, but edge cases are hard to eliminate entirely.
+
+  The bulk of the tracker's time will be spent in the `:tracking` state, which can be considered the core
+  state from which all others are entered.
+
+                        +---------------+
+      +----+           |            +-------+
+      |init|         +------------->|syncing|------------------+
+      +-+--+         | |            ++--+---+                  |
+        v            | |             |  | ^                    |
+      +-------+----+ | |             |  | |                    |
+      |cluster_wait| | |             |  v |                    v
+      +-+----------+ | |             | +--+------------+  +-----------------------------+
+        v            | |             | |sync_tiebreaker+->|resolve_pending_sync_requests|
+      +------------+ | |             | ++--------------+  +-------+----+----------------+
+      |cluster_join+-+ |             |  |                   ^     |    |
+      +-+----------+   |             |  |                   |     |    |
+        |              |             |  |                   |     |    |
+        |              |             |  |                   |     |    |
+        |              |             |  | +----------------------------+
+        |              |  +---------------------------------------+
+        |              |  |          |  | |                 |
+        |              v  v          v  v v                 |
+        |            +--------+     +-------+               |
+        +----------->|tracking|     |waiting+---------------+
+                     +--------+     +-------+
+  +------------+        ^
+  |anti_entropy|<-------+
+  +------------+
+
   """
   import Swarm.Entry
   alias Swarm.IntervalTreeClock, as: ITC

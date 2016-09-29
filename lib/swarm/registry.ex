@@ -32,7 +32,10 @@ defmodule Swarm.Registry do
   defdelegate leave(group, pid), to: Tracker, as: :remove_meta
 
   @spec members(group :: term) :: [pid]
-  def members(group), do: Enum.map(get_by_meta(group), fn entry(pid: pid) -> pid end)
+  def members(group) do
+    :ets.select(:swarm_registry, [{entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{group => :'$4'}, clock: :'$5'), [], [:'$_']}])
+    |> Enum.map(fn entry(pid: pid) -> pid end)
+  end
 
   @spec registered() :: [{name :: term, pid}]
   def registered(), do: all()

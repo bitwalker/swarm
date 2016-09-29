@@ -30,7 +30,7 @@ defmodule Swarm.Tracker do
   it's parent node goes down, or shift the process to other nodes if the cluster
   topology changes. It is strictly for global name registration.
   """
-  def track(name, pid), do: GenServer.call(__MODULE__, {:track, name, pid, nil}, :infinity)
+  def track(name, pid), do: GenServer.call(__MODULE__, {:track, name, pid, %{}}, :infinity)
 
   @doc """
   Tracks a process created via the provided module/function/args with the given name.

@@ -42,7 +42,7 @@ defmodule Swarm.Cluster.Gossip do
     multicast_addr = case Keyword.get(opts, :multicast_addr, @default_multicast_addr) do
                        {_a,_b,_c,_d} = ip -> ip
                        ip when is_binary(ip) ->
-                         {:ok, addr} = :inet.parse_ipv4_address(ip)
+                         {:ok, addr} = :inet.parse_ipv4_address(~c"#{ip}")
                          addr
                      end
     {:ok, socket} = :gen_udp.open(port, [

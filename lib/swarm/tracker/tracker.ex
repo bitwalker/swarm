@@ -307,7 +307,7 @@ defmodule Swarm.Tracker do
             {:syncing, state, parent, debug, {sync_node, pending_requests}}
         end
       # Receive a copy of the registry from our sync target
-      {:sync_recv, from, clock, registry} ->
+      {:sync_recv, from, clock, registry} when node(from) == sync_node ->
         debug = handle_debug(debug, {:in, {:sync_recv, from, clock, :swarm_registry}})
         log :info, "received sync response, loading registry.."
         # let remote node know we've got the registry
@@ -323,6 +323,10 @@ defmodule Swarm.Tracker do
         log :info, "finished sync and sent acknowledgement to #{node(from)}"
         # clear any pending sync requests to prevent blocking
         {:resolve_pending_sync_requests, state, parent, debug, pending_requests}
+      {:sync_recv, from, _clock, _registry} ->
+        # somebody is sending us a thing which expects an ack, but we no longer care about it
+        # we should reply even though we're dropping this message
+        send(from, {:sync_ack, Node.self})
       # Something weird happened during sync, so try a different node,
       # with this implementation, we *could* end up selecting the same node
       # again, but that's fine as this is effectively a retry
@@ -488,6 +492,10 @@ defmodule Swarm.Tracker do
             new_state = %{state | nodes: [node|state.nodes], ring: HashRing.add_node(state.ring, node)}
             waiting(new_state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
         end
+      {:sync_recv, from, _clock, _registry} ->
+        # somebody is sending us a thing which expects an ack,
+        # we should reply even though we're dropping this message
+        send(from, {:sync_ack, Node.self})
     after 1_000 ->
         log :info, "waiting for #{inspect reply} from #{remote_node}.."
         waiting(state, parent, debug, {{reply, remote_node}, next_state, next_state_extra})
@@ -544,6 +552,10 @@ defmodule Swarm.Tracker do
       {:DOWN, ref, _type, pid, info} = msg ->
         debug = handle_debug(debug, {:in, msg})
         {:handle_monitor, state, parent, debug, {ref, pid, info}}
+      {:sync_recv, from, _clock, _registry} ->
+        # somebody is sending us a thing which expects an ack,
+        # we should reply even though we're dropping this message
+        send(from, {:sync_ack, Node.self})
       msg ->
         debug = handle_debug(debug, {:in, msg})
         log "unexpected message: #{inspect msg}"

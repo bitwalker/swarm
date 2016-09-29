@@ -43,6 +43,7 @@ defmodule Swarm.Registry do
   @spec publish(term, term) :: :ok
   def publish(group, msg) do
     for pid <- members(group), do: Kernel.send(pid, msg)
+    :ok
   end
 
   @spec multi_call(term, term, pos_integer) :: [term]

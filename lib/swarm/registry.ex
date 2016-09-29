@@ -1,7 +1,7 @@
 defmodule Swarm.Registry do
   @moduledoc false
   import Swarm.Entry
-  alias Swarm.Tracker
+  alias Swarm.{Tracker, Entry}
   use GenServer
 
   ## Public API
@@ -35,6 +35,7 @@ defmodule Swarm.Registry do
   def members(group) do
     :ets.select(:swarm_registry, [{entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{group => :'$4'}, clock: :'$5'), [], [:'$_']}])
     |> Enum.map(fn entry(pid: pid) -> pid end)
+    |> Enum.uniq
   end
 
   @spec registered() :: [{name :: term, pid}]
@@ -65,11 +66,13 @@ defmodule Swarm.Registry do
     end
   end
 
+  @spec all() :: [{name :: term(), pid()}]
   def all() do
     :ets.tab2list(:swarm_registry)
     |> Enum.map(fn entry(name: name, pid: pid) -> {name, pid} end)
   end
 
+  @spec get_by_name(term()) :: :undefined | Entry.entry
   def get_by_name(name) do
     case :ets.lookup(:swarm_registry, name) do
       []    -> :undefined

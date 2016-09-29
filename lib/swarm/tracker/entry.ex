@@ -10,5 +10,5 @@ defmodule Swarm.Entry do
     meta: %{},
     clock: nil
 
-  @type entry :: record(:entry, name: term, pid: pid, ref: reference, meta: nil | Map.t, clock: nil | ITC.t)
+  @type entry :: record(:entry, name: term, pid: pid, ref: reference, meta: nil | map, clock: nil | ITC.t)
 end

@@ -30,7 +30,8 @@ defmodule Swarm.Tracker do
   it's parent node goes down, or shift the process to other nodes if the cluster
   topology changes. It is strictly for global name registration.
   """
-  def track(name, pid), do: GenServer.call(__MODULE__, {:track, name, pid, %{}}, :infinity)
+  def track(name, pid) when is_pid(pid),
+    do: GenServer.call(__MODULE__, {:track, name, pid, %{}}, :infinity)
 
   @doc """
   Tracks a process created via the provided module/function/args with the given name.
@@ -39,22 +40,26 @@ defmodule Swarm.Tracker do
   If the cluster topology changes, and the owner of it's keyspace changes, it will be shifted to
   the new owner, after initiating the handoff process as described in the documentation.
   """
-  def track(name, m, f, a), do: GenServer.call(__MODULE__, {:track, name, m, f, a}, :infinity)
+  def track(name, m, f, a) when is_atom(m) and is_atom(f) and is_list(a),
+    do: GenServer.call(__MODULE__, {:track, name, m, f, a}, :infinity)
 
   @doc """
   Stops tracking the given process (pid)
   """
-  def untrack(pid), do: GenServer.call(__MODULE__, {:untrack, pid}, :infinity)
+  def untrack(pid) when is_pid(pid),
+    do: GenServer.call(__MODULE__, {:untrack, pid}, :infinity)
 
   @doc """
   Adds some metadata to the given process (pid). This is primarily used for tracking group membership.
   """
-  def add_meta(key, value, pid), do: GenServer.cast(__MODULE__, {:add_meta, key, value, pid})
+  def add_meta(key, value, pid) when is_pid(pid),
+    do: GenServer.cast(__MODULE__, {:add_meta, key, value, pid})
 
   @doc """
   Removes metadata from the given process (pid).
   """
-  def remove_meta(key, pid), do: GenServer.cast(__MODULE__, {:remove_meta, key, pid})
+  def remove_meta(key, pid) when is_pid(pid),
+    do: GenServer.cast(__MODULE__, {:remove_meta, key, pid})
 
   ## Process Internals / Internal API
 
@@ -185,7 +190,7 @@ defmodule Swarm.Tracker do
   def cluster_join(%TrackerState{nodes: []} = state, parent, debug, _extra) do
     log :info, "joining cluster.."
     log :info, "no connected nodes, proceeding without sync"
-    :timer.send_after(5 * 60_000, self(), :anti_entropy)
+    {:ok, _timer} = :timer.send_after(5 * 60_000, self(), :anti_entropy)
     {:tracking, %{state | clock: ITC.seed()}, parent, debug}
   end
   def cluster_join(%TrackerState{nodes: nodelist} = state, parent, debug, _extra) do
@@ -571,7 +576,7 @@ defmodule Swarm.Tracker do
   # events fail for some reason, we can control the drift in registry state
   @doc false
   def anti_entropy(%TrackerState{nodes: []} = state, parent, debug, nil) do
-    :timer.send_after(5 * 60_000, self(), :anti_entropy)
+    {:ok, _timer} = :timer.send_after(5 * 60_000, self(), :anti_entropy)
     {:tracking, state, parent, debug}
   end
   def anti_entropy(%TrackerState{nodes: nodes} = state, parent, debug, nil) do
@@ -1067,7 +1072,7 @@ defmodule Swarm.Tracker do
             {:reply, {:error, {:already_registered, pid}}, state}
         end
       remote_node ->
-        Task.start(fn ->
+        {:ok, _pid} = Task.start(fn ->
           log "starting #{inspect name} on #{remote_node}"
           start_pid_remotely(remote_node, from, name, m, f, a, state)
         end)
@@ -1258,7 +1263,14 @@ defmodule Swarm.Tracker do
   ## Internal helpers
 
   defp broadcast_event([], _clock, _event),  do: :ok
-  defp broadcast_event(nodes, clock, event), do: :rpc.sbcast(nodes, __MODULE__, {:event, self(), clock, event})
+  defp broadcast_event(nodes, clock, event) do
+    case :rpc.sbcast(nodes, __MODULE__, {:event, self(), clock, event}) do
+      {_good, []}  -> :ok
+      {_good, bad_nodes} ->
+        warn "broadcast of event (#{inspect event}) was not recevied by #{inspect bad_nodes}"
+        :ok
+    end
+  end
 
   defp add_registration(%TrackerState{clock: clock, nodes: nodes} = state, name, pid, meta) do
     case Registry.get_by_name(name) do

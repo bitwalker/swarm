@@ -89,14 +89,21 @@ defmodule Swarm.IntervalTreeClock do
   @doc """
   Encodes the clock as a binary
   """
-  @spec encode(__MODULE__.t) :: bitstring
+  @spec encode(__MODULE__.t) :: binary
   def encode({i, e}), do: :erlang.term_to_binary({i, e})
 
   @doc """
   Decodes the clock from a binary
   """
-  @spec decode(binary) :: __MODULE__.t
-  def decode(b), do: :erlang.binary_to_term(b)
+  @spec decode(binary) :: {:ok, __MODULE__.t} | {:error, {:invalid_clock, term}}
+  def decode(b) when is_binary(b) do
+    case :erlang.binary_to_term(b) do
+      {_i, _e} = clock ->
+        clock
+      other ->
+        {:error, {:invalid_clock, other}}
+    end
+  end
 
   @doc """
   Returns the length of the encoded binary representation of the clock

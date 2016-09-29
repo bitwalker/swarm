@@ -12,6 +12,7 @@ defmodule Swarm.Cluster.Kubernetes do
   use GenServer
   import Swarm.Logger
 
+  @kubernetes_master    "kubernetes.default.svc.cluster.local"
   @service_account_path "/var/run/secrets/kubernetes.io/serviceaccount"
 
   def start_link(), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
@@ -19,6 +20,7 @@ defmodule Swarm.Cluster.Kubernetes do
     {:ok, MapSet.new([]), 0}
   end
 
+  @spec handle_info(term(), MapSet.t) :: {:noreply, MapSet.t}
   def handle_info(:timeout, nodelist) do
     handle_info(:load, nodelist)
   end
@@ -37,6 +39,7 @@ defmodule Swarm.Cluster.Kubernetes do
     {:noreply, nodelist}
   end
 
+  @spec get_token() :: String.t
   defp get_token() do
     path = Path.join(@service_account_path, "token")
     case File.exists?(path) do
@@ -45,6 +48,7 @@ defmodule Swarm.Cluster.Kubernetes do
     end
   end
 
+  @spec get_namespace() :: String.t
   defp get_namespace() do
     path = Path.join(@service_account_path, "namespace")
     case File.exists?(path) do
@@ -53,7 +57,7 @@ defmodule Swarm.Cluster.Kubernetes do
     end
   end
 
-  @kubernetes_master "kubernetes.default.svc.cluster.local"
+  @spec get_nodes() :: [atom()]
   defp get_nodes() do
     token     = get_token()
     namespace = get_namespace()
@@ -108,6 +112,7 @@ defmodule Swarm.Cluster.Kubernetes do
     end
   end
 
+  @spec connect_nodes([atom()]) :: :ok
   defp connect_nodes(nodes) do
     for n <- nodes do
       case :net_kernel.connect_node(n) do

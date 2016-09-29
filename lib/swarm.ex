@@ -67,7 +67,7 @@ defmodule Swarm do
   @doc """
   Gets all the members of a group. Returns a list of pids.
   """
-  @spec members(term) :: [pid]
+  @spec members(term()) :: [pid]
   defdelegate members(group), to: Swarm.Registry
 
   @doc """

@@ -55,7 +55,7 @@ leave(Group, Pid) ->
     ?SWARM:leave(Group, Pid).
 
 %% @doc Get a list of pids which are members of the given group
--spec members(term()) -> [pid].
+-spec members(term()) -> [pid()].
 members(Group) ->
     ?SWARM:members(Group).
 

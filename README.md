@@ -2,6 +2,11 @@
 
 [![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm)
 
+**NOTE**: If you are upgrading to 2.0, be aware that the autoclustering functionality has been extracted
+to it's own packaage, which you will need to depend on if you use that feature. 
+The package is [libcluster](http://github.com/bitwalker/libcluster) and is available on Hex. Please
+be sure to read over the README to make sure your config is properly updated.
+
 Swarm is a global distributed registry, offering a feature set similar to that of `gproc`, 
 but architected to handle dynamic node membership and large volumes of process registrations
 being created/removed in short time windows.

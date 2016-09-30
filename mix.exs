@@ -3,7 +3,7 @@ defmodule Swarm.Mixfile do
 
   def project do
     [app: :swarm,
-     version: "1.1.3",
+     version: "2.0.0",
      elixir: "~> 1.3",
      elixirc_paths: elixirc_paths(Mix.env),
      build_embedded: Mix.env == :prod,
@@ -21,7 +21,7 @@ defmodule Swarm.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :crypto, :libring, :inets, :poison],
+    [applications: [:logger, :crypto, :libring],
      mod: {Swarm, []}]
   end
 
@@ -30,8 +30,7 @@ defmodule Swarm.Mixfile do
      {:dialyxir, "~> 0.3", only: :dev},
      {:benchee, "~> 0.4", only: :dev},
      {:porcelain, "~> 2.0", only: [:dev, :test]},
-     {:libring, "~> 0.1"},
-     {:poison, "~> 2.2"}]
+     {:libring, "~> 0.1"}]
   end
 
   defp package do

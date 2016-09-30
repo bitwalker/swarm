@@ -160,7 +160,12 @@ defmodule Swarm.Tracker do
     # Before we can be considered "up", we must sync with
     # some other node in the cluster, if they exist, otherwise
     # we seed our own ITC and start tracking
-    debug = :sys.debug_options(Application.get_env(:swarm, :debug_opts, []))
+    debug = cond do
+      debug_mode?() ->
+        :sys.debug_options(debug_opts())
+      :else ->
+        :sys.debug_options([])
+    end
     # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
     ring = Enum.reduce(nodelist, HashRing.new(Node.self), fn n, r ->
@@ -1409,4 +1414,7 @@ defmodule Swarm.Tracker do
     whitelist = node_whitelist()
     HashRing.Utils.ignore_node?(node, blacklist, whitelist)
   end
+
+  defp debug_mode?(), do: Application.get_env(:swarm, :debug, false)
+  defp debug_opts(),  do: Application.get_env(:swarm, :debug_opts, [:trace])
 end

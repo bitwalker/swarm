@@ -1,8 +1,10 @@
 use Mix.Config
 
 config :swarm,
-  debug: false,
-  autocluster: false
+  debug: false,   # turn on debugging mode
+  debug_opts: [], # [:trace] for detailed logging
+  node_blacklist: [~r/^remsh.*$/],
+  node_whitelist: []
 
 config :logger,
   level: :info

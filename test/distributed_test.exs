@@ -16,8 +16,8 @@ defmodule Swarm.DistributedTests do
 
   setup do
     whitelist = [~r/^[a-z]@.*$/]
-    {:ok, node1, _node1pid} = Nodes.start(:a, [autocluster: false, debug: true, node_whitelist: whitelist])
-    {:ok, node2, _node2pid} = Nodes.start(:b, [autocluster: false, debug: true, node_whitelist: whitelist])
+    {:ok, node1, _node1pid} = Nodes.start(:a, [debug: true, node_whitelist: whitelist])
+    {:ok, node2, _node2pid} = Nodes.start(:b, [debug: true, node_whitelist: whitelist])
     on_exit fn ->
       Nodes.stop(node1)
       Nodes.stop(node2)

@@ -1,5 +1,4 @@
 Application.put_env(:swarm, :debug, false)
-Application.put_env(:swarm, :autocluster, false)
 Application.ensure_started(:swarm)
 
 defmodule SwarmTest.Worker do

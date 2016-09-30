@@ -2,13 +2,26 @@
 
 [![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm)
 
-Swarm is both a global distributed registry, like `gproc`, and a clustering utility.
-It was designed for the use case where large numbers of persistent processes are created
-for things like devices, and are unique across a cluster of Erlang nodes, and messages
-must be routed to those processes, both individually, and in groups. Additionally, Swarm
-is designed to distribute these processes evenly across the cluster based on a consistent
-hashing algorithm, and automatically move processes in response to cluster topology changes,
-or node crashes.
+Swarm is a global distributed registry, offering a feature set similar to that of `gproc`, 
+but architected to handle dynamic node membership and large volumes of process registrations
+being created/removed in short time windows.
+
+To be more clear, Swarm was born out of the need for a global process registry which could
+handle large numbers of persistent processes representing devices/device connections, which
+needed to be distributed around a cluster of Erlang nodes, and easily found. Messages need
+to be routed to those processes from anywhere in the cluster, both individually, and as groups;
+and additionally, those processes need to be shifted around the cluster based on cluster topology
+changes, or restarted if their owning node goes down.
+
+Before writing Swarm, I tried both `global` and `gproc`, but the former is not very flexible, and
+both of them require leader election, which in the face of dynamic node membership and the sheer
+volume of registrations, ended up causing deadlocks/timeouts during leadership contention.
+
+I also attempted to use `syn`, but because it uses `mnesia`, dynamic node membership as a requirement
+means it's dead on arrival for my use case.
+
+In short, are you running a cluster of Erlang nodes under something like Kubernetes? If so, Swarm is
+for you!
 
 View the docs [here](https://hexdocs.pm/swarm).
 
@@ -16,16 +29,12 @@ View the docs [here](https://hexdocs.pm/swarm).
 
 ```elixir
 defp deps do
-  [{:swarm, "~> 1.0"}]
+  [{:swarm, "~> 2.0"}]
 end
 ```
 
 ## Features
 
-- automatic cluster formation/healing using one of multiple available strategies:
-  standard Distributed Erlang facilities, gossip via UDP, using a configurable port/multicast address,
-  and via the Kubernetes API, via a configurable pod selector and node
-  basename.
 - automatic distribution of registered processes across
   the cluster based on a consistent hashing algorithm,
   where names are partitioned across nodes based on their hash.
@@ -64,12 +73,12 @@ to start a process on that node will be serialized through that node to prevent 
 
 ## Clustering
 
-You have three choices with regards to cluster management. You can use the built-in Erlang tooling for connecting
-nodes, by setting `autocluster: false` in the config for `swarm`. If set to `autocluster: true` it will make use of Swarm's 
-dynamic cluster formation via multicast UDP. If set to `autocluster: :kubernetes`, it will use the Kubernetes API, and
-the token/namespace injected into the pod to form a cluster of nodes based on a pod selector. You can provide your own
-autoclustering implementation by setting `autocluster: MyApp.Module` where `MyApp.Module` is an OTP process
-(i.e. `GenServer`, something started with `:proc_lib`, etc.). The implementation must connect nodes with `:net_adm.connect_node/1`.
+Swarm pre-2.0 included auto-clustering functionality, but that has been split out into it's own package,
+[libcluster](https://github.com/bitwalker/libcluster). Swarm works out of the box with Erlang's distribution
+tools (i.e. `Node.connect/1`, `:net_adm.connect_node/1`, etc.), but if you need the auto-clustering that Swarm
+previously provided, you will need to add `:libcluster` to your deps, and make sure it's in your applications
+list *before* `:swarm`. Some of the configuration has changed slightly in `:libcluster`, so be sure to review
+the docs.
 
 ### Node Blacklisting/Whitelisting
 
@@ -88,47 +97,6 @@ config :swarm,
 The above will only allow nodes named something like `myapp-1@somehost` to be included in Swarm's clustering. **NOTE**:
 It is important to understand that this does not prevent those nodes from connecting to the cluster, only that Swarm will
 not include those nodes in it's distribution algorithm, or communicate with those nodes.
-
-### Clustering Strategies
-
-The gossip protocol works by multicasting a heartbeat via UDP. The default configuration listens on all host interfaces,
-port 45892, and publishes via the multicast address `230.1.1.251`. These parameters can all be changed via the
-following config settings:
-
-```elixir
-config :swarm,
-  autocluster: true,
-  port: 45892,
-  if_addr: {0,0,0,0},
-  multicast_addr: {230,1,1,251},
-  # a TTL of 1 remains on the local network,
-  # use this to change the number of jumps the
-  # multicast packets will make
-  multicast_ttl: 1
-```
-
-The Kubernetes strategy works by querying the Kubernetes API for all endpoints in the same namespace which match the provided
-selector, and getting the container IPs associated with them. Once all of the matching IPs have been found, it will attempt to 
-establish node connections using the format `<kubernetes_node_basename>@<endpoint ip>`. You must make sure that your nodes are 
-configured to use longnames, that the hostname matches the `kubernetes_node_basename` setting, and that the domain matches the 
-IP address. Configuration might look like so:
-
-```elixir
-config :swarm,
-  autocluster: :kubernetes,
-  kubernetes_selector: "app=myapp",
-  kubernetes_node_basename: "myapp"
-```
-
-And in vm.args:
-
-```
--name myapp@10.128.0.9
--setcookie test
-```
-
-In all configurations, Swarm will respond to nodeup/nodedown events by shifting registered processes
-around the cluster based on the hash of their name.
 
 ## Registration/Process Grouping
 

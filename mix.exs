@@ -8,7 +8,7 @@ defmodule Swarm.Mixfile do
      elixirc_paths: elixirc_paths(Mix.env),
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
-     description: "Easy clustering, with registration and distribution of worker processes.",
+     description: "A fast, multi-master, distributed global process registry, with automatic distribution of worker processes.",
      package: package,
      docs: docs(),
      deps: deps(),

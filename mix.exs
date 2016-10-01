@@ -30,7 +30,7 @@ defmodule Swarm.Mixfile do
      {:dialyxir, "~> 0.3", only: :dev},
      {:benchee, "~> 0.4", only: :dev},
      {:porcelain, "~> 2.0", only: [:dev, :test]},
-     {:libring, "~> 0.1"}]
+     {:libring, "~> 1.0"}]
   end
 
   defp package do

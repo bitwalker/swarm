@@ -1333,7 +1333,21 @@ defmodule Swarm.Tracker do
         broadcast_event(nodes, Clock.peek(clock), {:track, name, pid, meta})
         {:reply, {:ok, pid}, %{state | clock: clock}}
       entry(pid: ^pid) ->
-        {:reply, {:error, {:already_registered, pid}}, state}
+        # Not sure how this could happen, but hey, no need to return an error
+        {:reply, {:ok, pid}, state}
+      entry(pid: other_pid) ->
+        # Since there is already a registration, we need to check whether to kill the newly
+        # created process
+        current_node = Node.self
+        case meta do
+          %{mfa: _} when node(pid) == current_node ->
+            # This was created via register_name/4, which means we need to kill the pid we started
+            Process.exit(pid, :kill)
+          _ ->
+            # This was a pid started by something else, so we can ignore it
+            :ok
+        end
+        {:reply, {:error, {:already_registered, other_pid}}, state}
     end
   end
 

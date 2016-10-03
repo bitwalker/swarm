@@ -7,7 +7,7 @@ config :swarm,
     # the following blacklists nodes set up by exrm/relx/distillery
     # for remote shells (the first) and hot upgrade scripting (the second)
     ~r/^remsh.*$/,
-    ~r/.+_upgrader_.+/
+    ~r/^.+_upgrader_.+$/
     # or using strings..
     # "some_node" - literals
     # "^remsh.*$" - regex patterns

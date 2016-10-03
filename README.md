@@ -91,8 +91,9 @@ You can explicitly whitelist or blacklist nodes to prevent certain nodes from be
 hash ring. This is done with either the `node_whitelist` and `node_blacklist` settings respectively. These settings
 must be lists containing either literal strings or valid Elixir regex patterns as either string or regex literals.
 If no whitelist is set, then the blacklist is used, and if no blacklist is provided, the default blacklist includes
-a pattern for ignoring remote shell sessions as named by Relx, ExRM, or Distillery, which is `^remsh.*$`. An example
-config looks like the following:
+two patterns, in both cases to ignore nodes which are created by Relx/ExRM/Distillery when using releases, in order
+to setup remote shells (the first) and hot upgrade scripting (the second), the patterns can be found in this repo's
+`config/config.exs` file, and you can find a quick example below:
 
 ```elixir
 config :swarm,

@@ -1,3 +1,15 @@
+## Unreleased
+
+## Changed
+
+- Default `node_blacklist` was expanded to ignore hot upgrade scripting
+  nodes as setup by exrm/relx/distillery.
+
+## Fixed
+
+- When registering a name via `register_name/4` which is already registered,
+  ensure the process we created via `apply/3` is killed.
+  
 ## 2.0
 
 ## Removed

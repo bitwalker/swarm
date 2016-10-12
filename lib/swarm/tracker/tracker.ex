@@ -94,7 +94,7 @@ defmodule Swarm.Tracker do
   Stops tracking the given process (pid)
   """
   def untrack(pid) when is_pid(pid),
-    do: GenServer.call(__MODULE__, {:untrack, pid}, :infinity)
+    do: GenServer.cast(__MODULE__, {:untrack, pid})
 
   @doc """
   Adds some metadata to the given process (pid). This is primarily used for tracking group membership.

@@ -163,8 +163,8 @@ defmodule MyApp.WorkerSup do
   @doc """
   Registers a new worker, and creates the worker process
   """
-  def register(worker_args) when is_list(worker_args) do
-    {:ok, _pid} = Supervisor.start_child(__MODULE__, [worker_args])
+  def register(worker_name) do
+    {:ok, _pid} = Supervisor.start_child(__MODULE__, [worker_name])
   end
 end
 
@@ -173,8 +173,8 @@ defmodule MyApp.Worker do
   This is the worker process, in this case, it simply posts on a
   random recurring interval to stdout.
   """
-  def start_link([name: name]), do: GenServer.start_link(__MODULE__, [name])
-  def init(name), do: {:ok, {name, :rand.uniform(5_000)}, 0}
+  def start_link(name), do: GenServer.start_link(__MODULE__, [name])
+  def init([name]), do: {:ok, {name, :rand.uniform(5_000)}, 0}
 
   # called when a handoff has been initiated due to changes
   # in cluster topology, valid response values are:
@@ -217,7 +217,7 @@ defmodule MyApp.ExampleUsages do
   to the `:foo` group
   """
   def start_worker(name) do
-    {:ok, pid} = Swarm.register_name(name, MyApp.Supervisor, :register, [name: name])
+    {:ok, pid} = Swarm.register_name(name, MyApp.Supervisor, :register, [name])
     Swarm.join(:foo, pid)
   end
 

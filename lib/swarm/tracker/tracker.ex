@@ -1030,9 +1030,8 @@ defmodule Swarm.Tracker do
   end
 
   # Add a registration and reply to the caller with the result, then return the state transition
-  @spec add_registration({term(), nil | pid(), Map.t}, pid() | reference() | atom(), TrackerState.t) :: {:keep_state, TrackerState.t}
   defp add_registration({_name, _pid, _meta} = reg, from, state) do
-    case add_registration(reg, state) do
+    case register(reg, state) do
       {:ok, reply, new_state} when from != nil ->
         GenStateMachine.reply(from, {:ok, reply})
         {:keep_state, new_state}
@@ -1045,8 +1044,7 @@ defmodule Swarm.Tracker do
   end
 
   # Add a registration and return the result of the add
-  @spec add_registration({term(), pid(), Map.t}, TrackerState.t) :: {:ok, pid(), TrackerState.t} | {:error, term(), TrackerState.t}
-  defp add_registration({name, pid, meta}, %TrackerState{clock: clock, nodes: nodes} = state) do
+  defp register({name, pid, meta}, %TrackerState{clock: clock, nodes: nodes} = state) do
     case Registry.get_by_name(name) do
       :undefined ->
         ref = Process.monitor(pid)

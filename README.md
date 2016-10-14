@@ -121,9 +121,7 @@ dies. Join/leave can be used to do pubsub like things, or perform operations ove
 ## Debugging/Troubleshooting
 
 By configuring Swarm with `debug: true` and setting Logger's log level to `:debug`, you can get much more
-information about what it is doing during operation to troubleshoot issues. You can configure the `:sys`
-tracing when `debug: true` by passing valid `:sys` debug options with `debug_opts: [:trace, ..]`. By default
-`:trace` is set.
+information about what it is doing during operation to troubleshoot issues.
 
 To dump the tracker's state, you can use `:sys.get_state(Swarm.Tracker)` or `:sys.get_status(Swarm.Tracker)`.
 The former will dump the tracker state including what nodes it's tracking, what nodes are in the hash ring,

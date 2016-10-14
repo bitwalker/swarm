@@ -1,9 +1,19 @@
+# Since we depend on gen_statem, an OTP 19 construct
+# Warn if someone depends on this in <19
+otp_release =
+  String.split("#{:erlang.system_info(:otp_release)}", ".")
+  |> List.first()
+  |> String.to_integer()
+if otp_release < 19 do
+  IO.warn "Swarm requires Erlang/OTP 19 or greater", []
+end
+
 defmodule Swarm.Mixfile do
   use Mix.Project
 
   def project do
     [app: :swarm,
-     version: "2.0.2",
+     version: "3.0.0",
      elixir: "~> 1.3",
      elixirc_paths: elixirc_paths(Mix.env),
      build_embedded: Mix.env == :prod,
@@ -21,7 +31,7 @@ defmodule Swarm.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :crypto, :libring],
+    [applications: [:logger, :crypto, :libring, :gen_state_machine],
      mod: {Swarm, []}]
   end
 
@@ -30,7 +40,8 @@ defmodule Swarm.Mixfile do
      {:dialyxir, "~> 0.3", only: :dev},
      {:benchee, "~> 0.4", only: :dev},
      {:porcelain, "~> 2.0", only: [:dev, :test]},
-     {:libring, "~> 1.0"}]
+     {:libring, "~> 1.0"},
+     {:gen_state_machine, "~> 2.0"}]
   end
 
   defp package do

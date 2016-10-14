@@ -1,8 +1,7 @@
 use Mix.Config
 
 config :swarm,
-  debug: false,   # turn on debugging mode
-  debug_opts: [], # [:trace] for detailed logging
+  debug: true,   # turn on debugging mode
   node_blacklist: [
     # the following blacklists nodes set up by exrm/relx/distillery
     # for remote shells (the first) and hot upgrade scripting (the second)
@@ -17,7 +16,7 @@ config :swarm,
   ]
 
 config :logger,
-  level: :info
+  level: :debug
 
 config :porcelain,
   goon_warn_if_missing: false

@@ -13,6 +13,14 @@ defmodule Swarm.Tracker do
   alias Swarm.Registry
 
   defmodule TrackerState do
+    @type t :: %__MODULE__{
+      clock: nil | Swarm.IntervalTreeClock.t,
+      ring: HashRing.t,
+      self: atom(),
+      sync_node: nil | atom(),
+      sync_ref: nil | reference(),
+      pending_sync_reqs: [pid()]
+    }
     defstruct clock: nil,
               nodes: [],
               ring: nil,
@@ -109,7 +117,6 @@ defmodule Swarm.Tracker do
     Process.send_after(self(), :cluster_join, 5_000)
     {:ok, :cluster_wait, state}
   end
-
 
   def cluster_wait(:info, {:nodeup, node, _}, %TrackerState{} = state) do
     new_state = case nodeup(state, node) do
@@ -1023,7 +1030,7 @@ defmodule Swarm.Tracker do
   end
 
   # Add a registration and reply to the caller with the result, then return the state transition
-  @spec add_registration({term(), nil | pid(), Map.t}, pid() | reference() | atom(), %TrackerState{}) :: {:keep_state, %TrackerState{}}
+  @spec add_registration({term(), nil | pid(), Map.t}, pid() | reference() | atom(), TrackerState.t) :: {:keep_state, TrackerState.t}
   defp add_registration({_name, _pid, _meta} = reg, from, state) do
     case add_registration(reg, state) do
       {:ok, reply, new_state} when from != nil ->
@@ -1038,7 +1045,7 @@ defmodule Swarm.Tracker do
   end
 
   # Add a registration and return the result of the add
-  @spec add_registration({term(), pid(), Map.t}, %TrackerState{}) :: {:ok, pid(), %TrackerState{}} | {:error, term(), %TrackerState{}}
+  @spec add_registration({term(), pid(), Map.t}, TrackerState.t) :: {:ok, pid(), TrackerState.t} | {:error, term(), TrackerState.t}
   defp add_registration({name, pid, meta}, %TrackerState{clock: clock, nodes: nodes} = state) do
     case Registry.get_by_name(name) do
       :undefined ->

@@ -151,6 +151,19 @@ defmodule Swarm.Tracker do
     GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self()})
     {:next_state, :syncing, %{state | sync_node: sync_node, sync_ref: ref}}
   end
+  def cluster_wait(:cast, {:sync, from}, %TrackerState{nodes: [from_node]} = state) when node(from) == from_node do
+    info "joining cluster.."
+    sync_node = node(from)
+    info "syncing with #{sync_node}"
+    ref = Process.monitor({__MODULE__, sync_node})
+    clock = Clock.seed()
+    GenStateMachine.cast(from, {:sync_recv, self(), clock, :ets.tab2list(:swarm_registry)})
+    {:next_state, :awaiting_sync_ack, %{state | clock: clock, sync_node: sync_node, sync_ref: ref}}
+  end
+  def cluster_wait(:cast, {:sync, from}, %TrackerState{} = state) do
+    info "pending sync request from #{node(from)}"
+    {:keep_state, %{state | pending_sync_reqs: [from|state.pending_sync_reqs]}}
+  end
   def cluster_wait(_event_type, _event_data, _state) do
     {:keep_state_and_data, :postpone}
   end

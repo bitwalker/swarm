@@ -998,7 +998,7 @@ defmodule Swarm.Tracker do
               debug "#{inspect name} already registered to #{inspect pid} on #{remote_node}, but missing locally"
               ref = Process.monitor(pid)
               lclock = Clock.peek(state.clock)
-              :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{}, clock: lclock))
+              :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
               {:ok, pid}
             entry(pid: ^pid) ->
               debug "#{inspect name} already registered to #{inspect pid} on #{remote_node}"

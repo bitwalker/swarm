@@ -8,6 +8,9 @@ defmodule MyApp.Worker do
   def handle_call({:swarm, :begin_handoff}, _from, {delay, count}) do
     {:reply, {:resume, {delay, count}}, {delay, count}}
   end
+  def handle_call(:ping, _from, state) do
+    {:reply, {:pong, self()}, state}
+  end
 
   def handle_cast({:swarm, :end_handoff, {delay, count}}, {_, _}) do
     {:noreply, {delay, count}}

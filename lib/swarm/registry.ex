@@ -39,7 +39,7 @@ defmodule Swarm.Registry do
   end
 
   @spec registered() :: [{name :: term, pid}]
-  def registered(), do: all()
+  defdelegate registered(), to: __MODULE__, as: :all
 
   @spec publish(term, term) :: :ok
   def publish(group, msg) do
@@ -90,7 +90,7 @@ defmodule Swarm.Registry do
 
   @spec get_by_pid_and_name(pid(), term()) :: :undefined | Entry.entry
   def get_by_pid_and_name(pid, name) do
-    case :ets.match_object(:swarm_registry, entry(name: name, pid: pid, ref: :'$2', meta: '$3', clock: :'$4')) do
+    case :ets.match_object(:swarm_registry, entry(name: name, pid: pid, ref: :'$1', meta: :'$2', clock: :'$3')) do
       [] -> :undefined
       [obj] -> obj
     end

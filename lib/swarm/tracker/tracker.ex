@@ -573,7 +573,7 @@ defmodule Swarm.Tracker do
   # we implicitly joined the cluster due to a sync event, we know if
   # we receive such an event the cluster is already formed due to how
   # Erlang distribution works (it's a mesh)
-  def handle_event(:info, :cluster_join, state) do
+  def handle_event(:info, :cluster_join, _state) do
     :keep_state_and_data
   end
   def handle_event({:call, from}, msg, state) do

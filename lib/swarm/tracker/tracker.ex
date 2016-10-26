@@ -940,6 +940,7 @@ defmodule Swarm.Tracker do
     # lost connection to the node this pid is running on, check if we should restart it
     case Registry.get_by_ref(ref) do
       :undefined ->
+        debug "lost connection to #{inspect pid}, but no registration could be found, ignoring.."
         :keep_state_and_data
       entry(name: name, pid: ^pid, meta: %{mfa: {m,f,a}}) = obj ->
         debug "lost connection to #{inspect name} (#{inspect pid}) on #{node(pid)}, node is down"
@@ -961,6 +962,7 @@ defmodule Swarm.Tracker do
             {:keep_state, new_state}
         end
       entry(pid: ^pid) = obj ->
+        debug "lost connection to #{inspect pid}, but not restartable, removing registration.."
         {:ok, new_state} = remove_registration(state, obj)
         {:keep_state, new_state}
     end
@@ -968,6 +970,7 @@ defmodule Swarm.Tracker do
   defp handle_monitor(ref, pid, reason, %TrackerState{} = state) do
     case Registry.get_by_ref(ref) do
       :undefined ->
+        debug "#{inspect pid} is down: #{inspect reason}, but no registration found, ignoring.."
         :keep_state_and_data
       entry(name: name, pid: ^pid) = obj ->
         debug "#{inspect name} is down: #{inspect reason}"
@@ -1069,11 +1072,13 @@ defmodule Swarm.Tracker do
         # Not sure how this could happen, but hey, no need to return an error
         {:ok, pid, state}
       entry(pid: other_pid) ->
+        debug "conflicting registration for #{inspect name}: remote (#{inspect pid}) vs. local #{inspect other_pid}"
         # Since there is already a registration, we need to check whether to kill the newly
         # created process
+        pid_node = node(pid)
         current_node = Node.self
         case meta do
-          %{mfa: _} when node(pid) == current_node ->
+          %{mfa: _} when pid_node == current_node ->
             # This was created via register_name/4, which means we need to kill the pid we started
             Process.exit(pid, :kill)
           _ ->

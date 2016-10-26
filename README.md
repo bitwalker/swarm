@@ -3,11 +3,11 @@
 [![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm)
 
 **NOTE**: If you are upgrading to 2.0, be aware that the autoclustering functionality has been extracted
-to it's own packaage, which you will need to depend on if you use that feature. 
+to it's own packaage, which you will need to depend on if you use that feature.
 The package is [libcluster](http://github.com/bitwalker/libcluster) and is available on Hex. Please
 be sure to read over the README to make sure your config is properly updated.
 
-Swarm is a global distributed registry, offering a feature set similar to that of `gproc`, 
+Swarm is a global distributed registry, offering a feature set similar to that of `gproc`,
 but architected to handle dynamic node membership and large volumes of process registrations
 being created/removed in short time windows.
 
@@ -62,7 +62,7 @@ end
 
 ## Consistency Guarantees
 
-Like any distributed system, a choice must be made in terms of guarantees provided. 
+Like any distributed system, a choice must be made in terms of guarantees provided.
 Swarm favors availability over consistency, even though it is eventually consistent, as network partitions,
 when healed, will be resolved by asking any copies of a given name that live on nodes where they don't
 belong to shutdown.
@@ -138,7 +138,7 @@ be discoverable by name from anywhere in the cluster. Swarm is a perfect fit for
 situation.
 
 ```elixir
-defmodule MyApp.WorkerSup do
+defmodule MyApp.Supervisor do
   @moduledoc """
   This is the supervisor for the worker processes you wish to distribute
   across the cluster, Swarm is primarily designed around the use case
@@ -171,8 +171,13 @@ defmodule MyApp.Worker do
   This is the worker process, in this case, it simply posts on a
   random recurring interval to stdout.
   """
-  def start_link(name), do: GenServer.start_link(__MODULE__, [name])
-  def init([name]), do: {:ok, {name, :rand.uniform(5_000)}, 0}
+  def start_link(name) do
+    GenServer.start_link(__MODULE__, [name])
+  end
+
+  def init([name]) do
+    {:ok, {name, :rand.uniform(5_000)}, 0}
+  end
 
   # called when a handoff has been initiated due to changes
   # in cluster topology, valid response values are:
@@ -181,7 +186,7 @@ defmodule MyApp.Worker do
   #   - `{:resume, state}`, to hand off some state to the new process
   #   - `:ignore`, to leave the process running on it's current node
   #
-  def handle_call({:swarm, :begin_handoff}, {name, delay}) do
+  def handle_call({:swarm, :begin_handoff}, _from, {name, delay}) do
     {:reply, {:resume, delay}, {name, delay}}
   end
   # called after the process has been restarted on it's new node,
@@ -207,7 +212,7 @@ defmodule MyApp.Worker do
   end
 end
 
-defmodule MyApp.ExampleUsages do
+defmodule MyApp.ExampleUsage do
   ...snip...
 
   @doc """

@@ -89,6 +89,13 @@ defmodule Swarm.Tracker do
       Swarm.Logger.warn("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
     end
   end
+  defmacrop error(msg) do
+    {current_state, _arity} = __CALLER__.function
+    quote do
+      Swarm.Logger.error("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+    end
+  end
+
 
   def start_link() do
     GenStateMachine.start_link(__MODULE__, [], name: __MODULE__)
@@ -992,9 +999,17 @@ defmodule Swarm.Tracker do
       case GenStateMachine.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity) do
         {:ok, pid} ->
           debug "started #{inspect name} (#{inspect pid}) on #{remote_node}"
-          ref = Process.monitor(pid)
+          ref    = Process.monitor(pid)
           lclock = Clock.peek(state.clock)
-          true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
+          meta   = %{mfa: {m,f,a}}
+          case :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: lclock)) do
+            true ->
+              :ok
+            false ->
+              # If we hit this block, we've already received the replication event
+              # from the remote node for this registration, and we can proceed
+              Process.demonitor(ref, [:flush])
+          end
           case from do
             nil -> :ok
             _   -> GenStateMachine.reply(from, {:ok, pid})
@@ -1032,10 +1047,12 @@ defmodule Swarm.Tracker do
           other_node ->
             start_pid_remotely(other_node, from, name, m, f, a, new_state)
         end
-      _, err when from != nil ->
+      kind, err when from != nil ->
+        error Exception.format(kind, err, System.stacktrace)
         warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"
         GenStateMachine.reply(from, {:error, err})
-      _, err ->
+      kind, err ->
+        error Exception.format(kind, err, System.stacktrace)
         warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"
     end
   end

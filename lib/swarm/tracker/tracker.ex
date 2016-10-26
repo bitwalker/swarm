@@ -282,7 +282,7 @@ defmodule Swarm.Tracker do
       # load target registry
       for entry(name: name, pid: pid, meta: meta, clock: clock) <- registry do
         ref = Process.monitor(pid)
-        :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: clock))
+        true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: clock))
       end
       # update our local clock to match remote clock
       state = %{state | clock: clock}
@@ -310,7 +310,7 @@ defmodule Swarm.Tracker do
               # our clock is behind, so add the registration
               debug "local is missing #{inspect rname}, adding.."
               ref = Process.monitor(rpid)
-              :ets.insert(:swarm_registry, entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
+              true = :ets.insert_new(:swarm_registry, entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
               %{state | clock: Clock.event(clock)}
           end
         [entry(pid: ^rpid, meta: ^rmeta, clock: ^rclock)] ->
@@ -600,7 +600,7 @@ defmodule Swarm.Tracker do
       ref = Process.monitor(pid)
       new_clock = Clock.event(clock)
       meta = %{mfa: {m,f,a}}
-      :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: Clock.peek(new_clock)))
+      true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: Clock.peek(new_clock)))
       broadcast_event(state.nodes, Clock.peek(new_clock), {:track, name, pid, meta})
       {:keep_state, %{state | clock: new_clock}}
     catch
@@ -718,7 +718,7 @@ defmodule Swarm.Tracker do
         end
       :undefined ->
         ref = Process.monitor(pid)
-        :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: rclock))
+        true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: rclock))
         {:keep_state, %{state | clock: Clock.event(clock)}}
     end
   end
@@ -994,7 +994,7 @@ defmodule Swarm.Tracker do
           debug "started #{inspect name} (#{inspect pid}) on #{remote_node}"
           ref = Process.monitor(pid)
           lclock = Clock.peek(state.clock)
-          :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
+          true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
           case from do
             nil -> :ok
             _   -> GenStateMachine.reply(from, {:ok, pid})
@@ -1005,7 +1005,7 @@ defmodule Swarm.Tracker do
               debug "#{inspect name} already registered to #{inspect pid} on #{remote_node}, but missing locally"
               ref = Process.monitor(pid)
               lclock = Clock.peek(state.clock)
-              :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
+              true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
               {:ok, pid}
             entry(pid: ^pid) ->
               debug "#{inspect name} already registered to #{inspect pid} on #{remote_node}"
@@ -1072,7 +1072,7 @@ defmodule Swarm.Tracker do
       :undefined ->
         ref = Process.monitor(pid)
         clock = Clock.event(clock)
-        :ets.insert(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: Clock.peek(clock)))
+        true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: Clock.peek(clock)))
         broadcast_event(nodes, Clock.peek(clock), {:track, name, pid, meta})
         {:ok, pid, %{state | clock: clock}}
       entry(pid: ^pid) ->
@@ -1182,7 +1182,7 @@ defmodule Swarm.Tracker do
     # add the remote registration
     ref = Process.monitor(rpid)
     clock = Clock.event(new_state.clock)
-    :ets.insert(:swarm_registry, entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
+    true = :ets.insert_new(:swarm_registry, entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
     %{new_state | clock: clock}
   end
 

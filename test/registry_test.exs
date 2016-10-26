@@ -35,5 +35,9 @@ defmodule Swarm.RegistryTests do
 
     assert entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref1)
     assert entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref2)
+
+    assert [entry(pid: ^pid1), entry(pid: ^pid2)] = Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
+
+    assert [entry(pid: ^pid1)] = :ets.lookup(:swarm_registry, {:test, 1})
   end
 end

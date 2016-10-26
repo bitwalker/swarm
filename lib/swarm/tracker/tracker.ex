@@ -569,6 +569,13 @@ defmodule Swarm.Tracker do
   def handle_event(:info, {:event, from, rclock, event}, state) do
     handle_replica_event(from, event, rclock, state)
   end
+  # If we receive cluster_join outside of cluster_wait it's because
+  # we implicitly joined the cluster due to a sync event, we know if
+  # we receive such an event the cluster is already formed due to how
+  # Erlang distribution works (it's a mesh)
+  def handle_event(:info, :cluster_join, state) do
+    :keep_state_and_data
+  end
   def handle_event({:call, from}, msg, state) do
     handle_call(msg, from, state)
   end

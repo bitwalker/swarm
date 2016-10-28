@@ -55,19 +55,19 @@ defmodule Swarm.Tracker do
   Stops tracking the given process (pid)
   """
   def untrack(pid) when is_pid(pid),
-    do: GenStateMachine.cast(__MODULE__, {:untrack, pid})
+    do: GenStateMachine.call(__MODULE__, {:untrack, pid}, :infinity)
 
   @doc """
   Adds some metadata to the given process (pid). This is primarily used for tracking group membership.
   """
   def add_meta(key, value, pid) when is_pid(pid),
-    do: GenStateMachine.cast(__MODULE__, {:add_meta, key, value, pid})
+    do: GenStateMachine.call(__MODULE__, {:add_meta, key, value, pid}, :infinity)
 
   @doc """
   Removes metadata from the given process (pid).
   """
   def remove_meta(key, pid) when is_pid(pid),
-    do: GenStateMachine.cast(__MODULE__, {:remove_meta, key, pid})
+    do: GenStateMachine.call(__MODULE__, {:remove_meta, key, pid}, :infinity)
 
   ## Process Internals / Internal API
 
@@ -918,27 +918,30 @@ defmodule Swarm.Tracker do
         :keep_state_and_data
     end
   end
+  defp handle_call({:untrack, pid}, from, %TrackerState{} = state) do
+    debug "untrack #{inspect pid}"
+    {:ok, new_state} = remove_registration_by_pid(pid, state)
+    GenStateMachine.reply(from, :ok)
+    {:keep_state, new_state}
+  end
+  defp handle_call({:add_meta, key, value, pid}, from, %TrackerState{} = state) do
+    debug "add_meta #{inspect {key, value}} to #{inspect pid}"
+    {:ok, new_state} = add_meta_by_pid({key, value}, pid, state)
+    GenStateMachine.reply(from, :ok)
+    {:keep_state, new_state}
+  end
+  defp handle_call({:remove_meta, key, pid}, from, %TrackerState{} = state) do
+    debug "remote_meta #{inspect key} for #{inspect pid}"
+    {:ok, new_state} = remove_meta_by_pid(key, pid, state)
+    GenStateMachine.reply(from, :ok)
+    {:keep_state, new_state}
+  end
   defp handle_call(msg, _from, _state) do
     warn "unrecognized call: #{inspect msg}"
     :keep_state_and_data
   end
 
   # This is the handler for local operations on the tracker which are asynchronous
-  defp handle_cast({:untrack, pid}, %TrackerState{} = state) do
-    debug "untrack #{inspect pid}"
-    {:ok, new_state} = remove_registration_by_pid(pid, state)
-    {:keep_state, new_state}
-  end
-  defp handle_cast({:add_meta, key, value, pid}, %TrackerState{} = state) do
-    debug "add_meta #{inspect {key, value}} to #{inspect pid}"
-    {:ok, new_state} = add_meta_by_pid({key, value}, pid, state)
-    {:keep_state, new_state}
-  end
-  defp handle_cast({:remove_meta, key, pid}, %TrackerState{} = state) do
-    debug "remote_meta #{inspect key} for #{inspect pid}"
-    {:ok, new_state} = remove_meta_by_pid(key, pid, state)
-    {:keep_state, new_state}
-  end
   defp handle_cast({:sync, from}, %TrackerState{clock: clock} = state) do
     debug "received sync request from #{node(from)}"
     {lclock, rclock} = Clock.fork(clock)

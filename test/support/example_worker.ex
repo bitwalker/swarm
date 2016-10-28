@@ -15,6 +15,9 @@ defmodule MyApp.Worker do
   def handle_cast({:swarm, :end_handoff, {delay, count}}, {_, _}) do
     {:noreply, {delay, count}}
   end
+  def handle_cast(_, state) do
+    {:noreply, state}
+  end
 
   def handle_info(:timeout, {delay, count}) do
     Process.send_after(self(), :timeout, delay)

@@ -528,6 +528,10 @@ defmodule Swarm.Tracker do
   def tracking(:info, :anti_entropy, state) do
     anti_entropy(state)
   end
+  # A change event received from another replica/node
+  def tracking(:cast, {:event, from, rclock, event}, state) do
+    handle_replica_event(from, event, rclock, state)
+  end
   # Received a handoff request from a node
   def tracking(:cast, {:handoff, from, {name, m, f, a, handoff_state, rclock}}, state) do
     handle_handoff(from, {name, m, f, a, handoff_state, rclock}, state)
@@ -535,10 +539,6 @@ defmodule Swarm.Tracker do
   # A remote registration failed due to nodedown during the call
   def tracking(:cast, {:retry, from, {:track, name, m, f, a}}, state) do
     handle_retry(from, {:track, name, m, f, a}, state)
-  end
-  # A change event received from another replica/node
-  def tracking(:cast, {:event, from, rclock, event}, state) do
-    handle_replica_event(from, event, rclock, state)
   end
   # A change event received locally
   def tracking({:call, from}, msg, state) do
@@ -602,17 +602,31 @@ defmodule Swarm.Tracker do
   # This is the callback for when a process is being handed off from a remote node to this node.
   defp handle_handoff(_from, {name, m, f, a, handoff_state, _rclock}, %TrackerState{clock: clock} = state) do
     try do
-      {:ok, pid} = apply(m, f, a)
-      GenServer.cast(pid, {:swarm, :end_handoff, handoff_state})
-      ref = Process.monitor(pid)
-      new_clock = Clock.event(clock)
-      meta = %{mfa: {m,f,a}}
-      true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: Clock.peek(new_clock)))
-      broadcast_event(state.nodes, Clock.peek(new_clock), {:track, name, pid, meta})
-      {:keep_state, %{state | clock: new_clock}}
+      # If a network split is being healed, we almost certainly will have a
+      # local registration already for this name (since it was present on this side of the split)
+      # If not, we'll restart it, but if so, we'll send the handoff state to the old process and
+      # let it determine how to resolve the conflict
+      current_node = Node.self
+      case Registry.get_by_name(name) do
+        :undefined ->
+          {:ok, pid} = apply(m, f, a)
+          GenServer.cast(pid, {:swarm, :end_handoff, handoff_state})
+          ref = Process.monitor(pid)
+          new_clock = Clock.event(clock)
+          meta = %{mfa: {m,f,a}}
+          true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: Clock.peek(new_clock)))
+          broadcast_event(state.nodes, Clock.peek(new_clock), {:track, name, pid, meta})
+          {:keep_state, %{state | clock: new_clock}}
+        entry(pid: pid) when node(pid) == current_node ->
+          GenServer.cast(pid, {:swarm, :resolve_conflict, handoff_state})
+          new_clock = Clock.event(clock)
+          meta = %{mfa: {m,f,a}}
+          broadcast_event(state.nodes, Clock.peek(new_clock), {:track, name, pid, meta})
+          {:keep_state, %{state | clock: new_clock}}
+      end
     catch
       kind, err ->
-        IO.puts Exception.normalize(kind, err, System.stacktrace)
+        error Exception.format(kind, err, System.stacktrace)
         :keep_state_and_data
     end
   end

@@ -198,6 +198,14 @@ defmodule MyApp.Worker do
   def handle_cast({:swarm, :end_handoff, delay}, {name, _}) do
     {:noreply, {name, delay}}
   end
+  # called when a network split is healed and the local process
+  # should continue running, but a duplicate process on the other
+  # side of the split is handing off it's state to us. You can choose
+  # to ignore the handoff state, or apply your own conflict resolution
+  # strategy
+  def handle_cast({:swarm, :resolve_conflict, _delay}, state) do
+    {:noreply, state}
+  end
 
   def handle_info(:timeout, {name, delay}) do
     IO.puts "#{inspect name} says hi!"

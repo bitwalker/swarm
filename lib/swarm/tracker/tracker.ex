@@ -1262,7 +1262,8 @@ defmodule Swarm.Tracker do
             info "nodeup #{node}"
             new_state = %{state | nodes: [node|nodes], ring: HashRing.add_node(ring, node)}
             {:ok, new_state, {:topology_change, {:nodeup, node}}}
-          _ ->
+          other ->
+            warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect other}"
             {:ok, state}
         end
     end

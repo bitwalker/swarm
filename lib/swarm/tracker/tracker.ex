@@ -654,8 +654,8 @@ defmodule Swarm.Tracker do
                   debug "#{inspect name} has requested to be resumed"
                   {:ok, state} = remove_registration(obj, %{state | clock: lclock})
                   send(pid, {:swarm, :die})
-                  debug "sending handoff for #{inspect name} to #{remote_node}"
-                  GenStateMachine.cast({__MODULE__, remote_node},
+                  debug "sending handoff for #{inspect name} to #{other_node}"
+                  GenStateMachine.cast({__MODULE__, other_node},
                                        {:handoff, self(), {name, m, f, a, handoff_state, Clock.peek(state.clock)}})
                   state.clock
                 :restart ->

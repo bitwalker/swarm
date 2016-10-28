@@ -903,11 +903,11 @@ defmodule Swarm.Tracker do
                 :keep_state_and_data
             end
           entry(pid: pid) when from != nil ->
-            debug "found #{inspect name} already registered on #{current_node}"
+            debug "found #{inspect name} already registered on #{node(pid)}"
             GenStateMachine.reply(from, {:error, {:already_registered, pid}})
             :keep_state_and_data
-          entry(pid: _pid) ->
-            debug "found #{inspect name} already registered on #{current_node}"
+          entry(pid: pid) ->
+            debug "found #{inspect name} already registered on #{node(pid)}"
             :keep_state_and_data
         end
       remote_node ->
@@ -1040,7 +1040,7 @@ defmodule Swarm.Tracker do
         {:error, {:already_registered, pid}} = err ->
           case Registry.get_by_pid_and_name(pid, name) do
             :undefined ->
-              debug "#{inspect name} already registered to #{inspect pid} on #{remote_node}, but missing locally"
+              debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}, but missing locally"
               Task.Supervisor.start_child(Swarm.TaskSupervisor, fn ->
                 ref = Process.monitor(pid)
                 lclock = Clock.peek(state.clock)
@@ -1055,7 +1055,7 @@ defmodule Swarm.Tracker do
                 end
               end)
             entry(pid: ^pid) ->
-              debug "#{inspect name} already registered to #{inspect pid} on #{remote_node}"
+              debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}"
               case from do
                 nil -> :ok
                 _   -> GenStateMachine.reply(from, err)

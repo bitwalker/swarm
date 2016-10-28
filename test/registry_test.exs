@@ -40,4 +40,12 @@ defmodule Swarm.RegistryTests do
 
     assert [entry(pid: ^pid1)] = :ets.lookup(:swarm_registry, {:test, 1})
   end
+
+  test "join/2 (joining a group does not create race conditions)" do
+    # https://github.com/bitwalker/swarm/issues/14
+    {:ok, pid} = Agent.start_link(fn -> "testing" end)
+    Swarm.join(:agents, pid)
+    assert [my_agent] = Swarm.members(:agents)
+    assert "testing" == Agent.get(my_agent, fn s -> s end)
+  end
 end

@@ -562,7 +562,7 @@ defmodule Swarm.Tracker do
   # events fail for some reason, we can control the drift in registry state
   def anti_entropy(%TrackerState{nodes: []}) do
     interval = Application.get_env(:swarm, :anti_entropy_interval, @default_anti_entropy_interval)
-    {:ok, _timer} = :timer.send_after(interval, self(), :anti_entropy)
+    Process.send_after(self(), :anti_entropy, interval)
     :keep_state_and_data
   end
   def anti_entropy(%TrackerState{nodes: nodes} = state) do
@@ -572,7 +572,7 @@ defmodule Swarm.Tracker do
     GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self()})
     new_state = %{state | sync_node: sync_node, sync_ref: ref}
     interval = Application.get_env(:swarm, :anti_entropy_interval, @default_anti_entropy_interval)
-    {:ok, _timer} = :timer.send_after(interval, self(), :anti_entropy)
+    Process.send_after(self(), :anti_entropy, interval)
     {:next_state, :syncing, new_state}
   end
 

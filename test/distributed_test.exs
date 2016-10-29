@@ -33,7 +33,7 @@ defmodule Swarm.DistributedTests do
     {:ok, _} = :rpc.call(node1, Application, :ensure_all_started, [:swarm])
     {:ok, _} = :rpc.call(node2, Application, :ensure_all_started, [:swarm])
     # give time to warm up
-    :timer.sleep(1_000)
+    Process.sleep(1_000)
 
     # start 5 processes from node2 to be distributed between node1 and node2
     worker_count = 10
@@ -47,7 +47,7 @@ defmodule Swarm.DistributedTests do
     #IO.puts "workers started"
 
     # give time to sync
-    :timer.sleep(5_000)
+    Process.sleep(5_000)
 
     :rpc.call(node1, :net_kernel, :disconnect, [node2])
     :rpc.call(node2, :net_kernel, :disconnect, [node1])
@@ -56,7 +56,7 @@ defmodule Swarm.DistributedTests do
     #IO.puts "node2 disconnected"
 
     # give time to sync
-    :timer.sleep(5_000)
+    Process.sleep(5_000)
 
     #node1_members = :rpc.call(node1, Swarm, :registered, [], :infinity)
     #node2_members = :rpc.call(node2, Swarm, :registered, [], :infinity)
@@ -89,7 +89,7 @@ defmodule Swarm.DistributedTests do
     #IO.puts "node2 reconnected"
 
     # give time to sync
-    :timer.sleep(30_000)
+    Process.sleep(30_000)
 
     # make sure processes are back in the correct place
     procs

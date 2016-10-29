@@ -19,7 +19,7 @@ defmodule Swarm.TrackerTests do
 
     send(Swarm.Tracker, {:event, self(), Clock.seed(), {:track, :test1, pid, meta}})
 
-    :timer.sleep(5_000)
+    Process.sleep(5_000)
 
     assert ^pid = Swarm.Registry.whereis(:test1)
 

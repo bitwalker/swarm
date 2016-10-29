@@ -8,6 +8,8 @@ defmodule Swarm.Tracker do
   """
   use GenStateMachine, callback_mode: :state_functions
 
+  @default_anti_entropy_interval 5 * 60_000
+
   import Swarm.Entry
   alias Swarm.IntervalTreeClock, as: Clock
   alias Swarm.Registry
@@ -109,18 +111,17 @@ defmodule Swarm.Tracker do
     info "started"
     # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
+
     ring = Enum.reduce(nodelist, HashRing.new(Node.self), fn n, r ->
       HashRing.add_node(r, n)
     end)
-    state = %TrackerState{nodes: nodelist, ring: ring}
-    case Application.get_env(:swarm, :debug, false) do
-      true ->
-        Task.start(fn ->
-          :sys.trace(Swarm.Tracker, true)
-        end)
-      _ ->
-        :ok
+
+    if Application.get_env(:swarm, :debug, false) do
+      Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)
     end
+
+    state = %TrackerState{nodes: nodelist, ring: ring, self: node()}
+
     Process.send_after(self(), :cluster_join, 5_000)
     {:ok, :cluster_wait, state}
   end
@@ -142,8 +143,8 @@ defmodule Swarm.Tracker do
   def cluster_wait(:info, :cluster_join, %TrackerState{nodes: []} = state) do
     info "joining cluster.."
     info "no connected nodes, proceeding without sync"
-    interval = Application.get_env(:swarm, :anti_entropy_interval, 5*60_000)
-    {:ok, _timer} = :timer.send_after(interval, self(), :anti_entropy)
+    interval = Application.get_env(:swarm, :anti_entropy_interval, @default_anti_entropy_interval)
+    Process.send_after(self(), :anti_entropy, interval)
     {:next_state, :tracking, %{state | clock: Clock.seed()}}
   end
   def cluster_wait(:info, :cluster_join, %TrackerState{nodes: nodes} = state) do
@@ -560,8 +561,8 @@ defmodule Swarm.Tracker do
   # after joining the cluster and initial syncrhonization. This way if replication
   # events fail for some reason, we can control the drift in registry state
   def anti_entropy(%TrackerState{nodes: []}) do
-    interval = Application.get_env(:swarm, :anti_entropy_interval, 5*60_000)
-    {:ok, _timer} = :timer.send_after(interval, self(), :anti_entropy)
+    interval = Application.get_env(:swarm, :anti_entropy_interval, @default_anti_entropy_interval)
+    Process.send_after(self(), :anti_entropy, interval)
     :keep_state_and_data
   end
   def anti_entropy(%TrackerState{nodes: nodes} = state) do
@@ -570,8 +571,8 @@ defmodule Swarm.Tracker do
     ref = Process.monitor({__MODULE__, sync_node})
     GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self()})
     new_state = %{state | sync_node: sync_node, sync_ref: ref}
-    interval = Application.get_env(:swarm, :anti_entropy_interval, 5*60_000)
-    {:ok, _timer} = :timer.send_after(interval, self(), :anti_entropy)
+    interval = Application.get_env(:swarm, :anti_entropy_interval, @default_anti_entropy_interval)
+    Process.send_after(self(), :anti_entropy, interval)
     {:next_state, :syncing, new_state}
   end
 

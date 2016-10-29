@@ -15,7 +15,7 @@ defmodule Swarm.RegistryTests do
     {:ok, pid1} = Swarm.register_name({:test, 1}, MyApp.WorkerSup, :register, [])
     {:ok, pid2} = Swarm.register_name({:test, 2}, MyApp.WorkerSup, :register, [])
 
-    :timer.sleep(1_000)
+    Process.sleep(1_000)
 
     assert ^pid1 = Swarm.Registry.whereis({:test, 1})
     assert ^pid2 = Swarm.Registry.whereis({:test, 2})

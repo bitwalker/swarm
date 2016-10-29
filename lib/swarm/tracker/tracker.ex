@@ -109,17 +109,14 @@ defmodule Swarm.Tracker do
     info "started"
     # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
+
     ring = Enum.reduce(nodelist, HashRing.new(Node.self), fn n, r ->
       HashRing.add_node(r, n)
     end)
     state = %TrackerState{nodes: nodelist, ring: ring}
-    case Application.get_env(:swarm, :debug, false) do
-      true ->
-        Task.start(fn ->
-          :sys.trace(Swarm.Tracker, true)
-        end)
-      _ ->
-        :ok
+
+    if Application.get_env(:swarm, :debug, false) do
+      Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)
     end
     Process.send_after(self(), :cluster_join, 5_000)
     {:ok, :cluster_wait, state}

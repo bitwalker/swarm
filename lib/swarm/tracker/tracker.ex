@@ -8,6 +8,7 @@ defmodule Swarm.Tracker do
   """
   use GenStateMachine, callback_mode: :state_functions
 
+  @sync_nodes_timeout 5_000
   @default_anti_entropy_interval 5 * 60_000
 
   import Swarm.Entry
@@ -98,7 +99,6 @@ defmodule Swarm.Tracker do
     end
   end
 
-
   def start_link() do
     GenStateMachine.start_link(__MODULE__, [], name: __MODULE__)
   end
@@ -120,9 +120,11 @@ defmodule Swarm.Tracker do
       Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)
     end
 
+    timeout = Application.get_env(:swarm, :sync_nodes_timeout, @sync_nodes_timeout)
+    Process.send_after(self(), :cluster_join, timeout)
+
     state = %TrackerState{nodes: nodelist, ring: ring, self: node()}
 
-    Process.send_after(self(), :cluster_join, 5_000)
     {:ok, :cluster_wait, state}
   end
 

@@ -1,10 +1,13 @@
 use Mix.Config
 
 config :swarm,
-  debug: true,   # turn on debugging mode
+  nodes: [:"node1@127.0.0.1", :"node2@127.0.0.1"],
+  sync_nodes_timeout: 0,
+  debug: false,
   node_blacklist: [
     # the following blacklists nodes set up by exrm/relx/distillery
     # for remote shells (the first) and hot upgrade scripting (the second)
+    ~r/^primary@.+$/,
     ~r/^remsh.*$/,
     ~r/^.+_upgrader_.+$/
     # or using strings..
@@ -16,7 +19,7 @@ config :swarm,
   ]
 
 config :logger,
-  level: :debug
+  level: :info
 
 config :porcelain,
   goon_warn_if_missing: false

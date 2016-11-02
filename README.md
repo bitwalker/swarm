@@ -2,8 +2,8 @@
 
 [![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm)
 
-**NOTE**: If you are upgrading to 2.0, be aware that the autoclustering functionality has been extracted
-to it's own packaage, which you will need to depend on if you use that feature.
+**NOTE**: If you are upgrading from 1.0, be aware that the autoclustering functionality has been extracted
+to it's own package, which you will need to depend on if you use that feature.
 The package is [libcluster](http://github.com/bitwalker/libcluster) and is available on Hex. Please
 be sure to read over the README to make sure your config is properly updated.
 

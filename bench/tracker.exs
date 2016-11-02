@@ -16,10 +16,10 @@ end
 
 # Best single-node run so far 470ms for 10k
 Benchee.run(%{time: 10}, %{
-      "Swarm.register_name/4" => fn ->
-        for i <- 1..10_000 do
-          r = :rand.uniform(100_000_000)
-          {:ok, _pid} = Swarm.register_name({:myapp, i, r}, SwarmTest.Worker, :start_link, [])
-        end
-      end
+  "Swarm.register_name/4" => fn ->
+    for i <- 1..10_000 do
+      r = :rand.uniform(100_000_000)
+      {:ok, _pid} = Swarm.register_name({:myapp, i, r}, SwarmTest.Worker, :start_link, [])
+    end
+  end
 })

@@ -113,7 +113,8 @@ registrations, and replicate them across the cluster, however these processes wi
 to cluster topology changes.
 
 Swarm also offers process grouping, similar to the way `gproc` does properties. You "join" a process to a group
-after it's started, typically in `init/1`, with `Swarm.join/2`. You can then publish messages (i.e. `cast`) with
+after it's started, (beware of doing so in `init/1` outside of a Task, or it will deadlock), with `Swarm.join/2`. 
+You can then publish messages (i.e. `cast`) with
 `Swarm.publish/2`, and/or call all processes in a group and collect results (i.e. `call`) with `Swarm.multi_call/2` or
 `Swarm.multi_call/3`. Leaving a group can be done with `Swarm.leave/2`, but will automatically be done when a process
 dies. Join/leave can be used to do pubsub like things, or perform operations over a group of related processes.

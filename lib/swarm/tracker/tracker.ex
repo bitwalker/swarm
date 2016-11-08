@@ -330,6 +330,7 @@ defmodule Swarm.Tracker do
         [entry(pid: ^rpid, meta: ^rmeta, clock: _)] ->
           # the clocks differ, but the data is identical, so let's update it so they're the same
           :ets.update_element(:swarm_registry, rname, [{entry(:clock)+1, rclock}])
+          state
         [entry(pid: ^rpid, meta: lmeta, clock: lclock)] ->
           # the metadata differs, we need to merge it
           cond do

@@ -958,6 +958,12 @@ defmodule Swarm.Tracker do
     GenStateMachine.cast(from, {:sync_recv, self(), rclock, :ets.tab2list(:swarm_registry)})
     {:next_state, :awaiting_sync_ack, %{state | clock: lclock, sync_node: sync_node, sync_ref: ref}}
   end
+  defp handle_cast({:sync_recv, from, _clock, _registry}, _state) do
+    # somebody is sending us a thing which expects an ack, but we no longer care about it
+    # we should reply even though we're dropping this message
+    GenStateMachine.cast(from, {:sync_ack, Node.self})
+    :keep_state_and_data
+  end
   defp handle_cast(msg, _state) do
     warn "unrecognized cast: #{inspect msg}"
     :keep_state_and_data

@@ -1034,7 +1034,7 @@ defmodule Swarm.Tracker do
     try do
       case GenStateMachine.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity) do
         {:ok, pid} ->
-          debug "started #{inspect name} (#{inspect pid}) on #{remote_node}"
+          debug "remotely started #{inspect name} (#{inspect pid}) on #{remote_node}"
           Task.Supervisor.start_child(Swarm.TaskSupervisor, fn ->
             ref    = Process.monitor(pid)
             lclock = Clock.peek(state.clock)
@@ -1065,8 +1065,6 @@ defmodule Swarm.Tracker do
               debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}, but missing locally"
               Task.Supervisor.start_child(Swarm.TaskSupervisor, fn ->
                 ref = Process.monitor(pid)
-                lclock = Clock.peek(state.clock)
-                true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: %{mfa: {m,f,a}}, clock: lclock))
                 case from do
                   nil -> :ok
                   _   -> GenStateMachine.reply(from, {:ok, pid})

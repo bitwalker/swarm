@@ -881,8 +881,13 @@ defmodule Swarm.Tracker do
     add_registration({name, pid, meta}, from, state)
   end
   defp handle_call({:track, name, m, f, a}, from, %TrackerState{ring: ring} = state) do
-    debug "registering #{inspect name} as process started by #{m}.#{f}/#{length(a)} with args #{inspect a}"
     current_node = Node.self
+    case from do
+      {from_pid, _} when node(from_pid) != current_node ->
+        debug "#{inspect node(from_pid)} is registering #{inspect name} as process started by #{m}.#{f}/#{length(a)} with args #{inspect a}"
+      _ ->
+        debug "registering #{inspect name} as process started by #{m}.#{f}/#{length(a)} with args #{inspect a}"
+    end
     case HashRing.key_to_node(ring, name) do
       ^current_node ->
         case Registry.get_by_name(name) do

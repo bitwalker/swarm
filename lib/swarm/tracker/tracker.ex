@@ -1035,51 +1035,15 @@ defmodule Swarm.Tracker do
       case GenStateMachine.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity) do
         {:ok, pid} ->
           debug "remotely started #{inspect name} (#{inspect pid}) on #{remote_node}"
-          Task.Supervisor.start_child(Swarm.TaskSupervisor, fn ->
-            ref    = Process.monitor(pid)
-            lclock = Clock.peek(state.clock)
-            meta   = %{mfa: {m,f,a}}
-            case :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: lclock)) do
-              true ->
-                case from do
-                  nil -> :ok
-                  _   -> GenStateMachine.reply(from, {:ok, pid})
-                end
-                receive do
-                  {:DOWN, ^ref, _, ^pid, _info} = msg->
-                    send({__MODULE__, Node.self}, msg)
-                end
-              false ->
-                # If we hit this block, we've already received the replication event
-                # from the remote node for this registration, and we can proceed
-                Process.demonitor(ref, [:flush])
-                case from do
-                  nil -> :ok
-                  _   -> GenStateMachine.reply(from, {:ok, pid})
-                end
-            end
-          end)
-        {:error, {:already_registered, pid}} = err ->
-          case Registry.get_by_pid_and_name(pid, name) do
-            :undefined ->
-              debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}, but missing locally"
-              Task.Supervisor.start_child(Swarm.TaskSupervisor, fn ->
-                ref = Process.monitor(pid)
-                case from do
-                  nil -> :ok
-                  _   -> GenStateMachine.reply(from, {:ok, pid})
-                end
-                receive do
-                  {:DOWN, ^ref, _, ^pid, _info} = msg ->
-                    send({__MODULE__, Node.self}, msg)
-                end
-              end)
-            entry(pid: ^pid) ->
-              debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}"
-              case from do
-                nil -> :ok
-                _   -> GenStateMachine.reply(from, err)
-              end
+          case from do
+            nil -> :ok
+            _   -> GenStateMachine.reply(from, {:ok, pid})
+          end
+        {:error, {:already_registered, pid}} ->
+          debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}"
+          case from do
+            nil -> :ok
+            _   -> GenStateMachine.reply(from, {:ok, pid})
           end
         {:error, _reason} = err when from != nil ->
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}"

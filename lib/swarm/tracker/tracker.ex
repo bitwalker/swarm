@@ -36,6 +36,12 @@ defmodule Swarm.Tracker do
   # Public API
 
   @doc """
+  Authoritatively looks up the pid associated with a given name.
+  """
+  def whereis(name),
+    do: GenStateMachine.call(__MODULE__, {:whereis, name}, :infinity)
+
+  @doc """
   Tracks a process (pid) with the given name.
   Tracking processes with this function will *not* restart the process when
   it's parent node goes down, or shift the process to other nodes if the cluster
@@ -876,6 +882,31 @@ defmodule Swarm.Tracker do
   end
 
   # This is the handler for local operations on the tracker which require a response.
+  defp handle_call({:whereis, name}, from, %TrackerState{ring: ring}) do
+    current_node = Node.self
+    case HashRing.key_to_node(ring, name) do
+      ^current_node ->
+        case Registry.get_by_name(name) do
+          :undefined ->
+            GenStateMachine.reply(from, :undefined)
+          entry(pid: pid) ->
+            GenStateMachine.reply(from, pid)
+        end
+      other_node ->
+        Task.Supervisor.start_child(Swarm.TaskSupervisor, fn ->
+          case :rpc.call(other_node, Swarm.Registry, :get_by_name, [name], :infinity) do
+            :undefined ->
+              GenStateMachine.reply(from, :undefined)
+            entry(pid: pid) ->
+              GenStateMachine.reply(from, pid)
+            {:badrpc, reason} ->
+              warn "failed to execute remote get_by_name on #{inspect other_node}: #{inspect reason}"
+              GenStateMachine.reply(from, :undefined)
+          end
+        end)
+    end
+    :keep_state_and_data
+  end
   defp handle_call({:track, name, pid, meta}, from, %TrackerState{} = state) do
     debug "registering #{inspect pid} as #{inspect name}, with metadata #{inspect meta}"
     add_registration({name, pid, meta}, from, state)

@@ -20,8 +20,10 @@ defmodule Swarm.Registry do
   @spec whereis(term) :: :undefined | pid
   def whereis(name) do
     case get_by_name(name) do
-      :undefined -> :undefined
-      entry(pid: pid) -> pid
+      :undefined ->
+        Tracker.whereis(name)
+      entry(pid: pid) ->
+        pid
     end
   end
 
@@ -59,9 +61,9 @@ defmodule Swarm.Registry do
 
   @spec send(name :: term, msg :: term) :: :ok
   def send(name, msg) do
-    case get_by_name(name) do
+    case whereis(name) do
       :undefined -> :ok
-      entry(pid: pid) ->
+      pid when is_pid(pid) ->
         Kernel.send(pid, msg)
     end
   end

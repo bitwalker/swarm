@@ -1089,7 +1089,8 @@ defmodule Swarm.Tracker do
         current_node = Node.self
         case HashRing.key_to_node(new_state.ring, name) do
           ^current_node ->
-            handle_call({:track, name, m, f, a}, from, new_state)
+            reply = track(name, m, f, a)
+            GenStateMachine.reply(from, reply)
           other_node ->
             start_pid_remotely(other_node, from, name, m, f, a, new_state)
         end

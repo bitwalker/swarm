@@ -1083,6 +1083,9 @@ defmodule Swarm.Tracker do
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}"
       end
     catch
+      _, {:noproc, _} ->
+        warn "remote tracker on #{remote_node} went down during registration, retrying operation.."
+        start_pid_remotely(remote_node, from, name, m, f, a, state)
       _, {{:nodedown, _}, _} ->
         warn "failed to start #{inspect name} on #{remote_node}: nodedown, retrying operation.."
         new_state = %{state | nodes: state.nodes -- [remote_node], ring: HashRing.remove_node(state.ring, remote_node)}

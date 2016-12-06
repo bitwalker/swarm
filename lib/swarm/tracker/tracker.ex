@@ -1222,7 +1222,7 @@ defmodule Swarm.Tracker do
     end
   end
 
-  @default_blacklist [~r/^remsh.*$/, ~r/^.+_upgrader_.+$/]
+  @default_blacklist [~r/^remsh.*$/, ~r/^.+_upgrader_.+$/, ~r/^.+_maint_.+$/]
   # The list of configured ignore patterns for nodes
   # This is only applied if no whitelist is provided.
   defp node_blacklist(), do: Application.get_env(:swarm, :node_blacklist, @default_blacklist)

@@ -123,7 +123,7 @@ defmodule Swarm.Tracker do
     end)
 
     if Application.get_env(:swarm, :debug, false) do
-      Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)
+      _ = Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)
     end
 
     timeout = Application.get_env(:swarm, :sync_nodes_timeout, @sync_nodes_timeout)
@@ -905,7 +905,7 @@ defmodule Swarm.Tracker do
             GenStateMachine.reply(from, pid)
         end
       other_node ->
-        Task.Supervisor.start_child(Swarm.TaskSupervisor, fn ->
+        _ = Task.Supervisor.start_child(Swarm.TaskSupervisor, fn ->
           case :rpc.call(other_node, Swarm.Registry, :get_by_name, [name], :infinity) do
             :undefined ->
               GenStateMachine.reply(from, :undefined)

@@ -13,7 +13,7 @@ defmodule Swarm.Registry do
   def unregister(name) do
     case get_by_name(name) do
       :undefined -> :ok
-      entry(pid: pid) -> Tracker.untrack(pid)
+      entry(pid: pid) when is_pid(pid) -> Tracker.untrack(pid)
     end
   end
 
@@ -22,7 +22,7 @@ defmodule Swarm.Registry do
     case get_by_name(name) do
       :undefined ->
         Tracker.whereis(name)
-      entry(pid: pid) ->
+      entry(pid: pid) when is_pid(pid) ->
         pid
     end
   end

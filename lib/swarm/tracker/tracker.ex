@@ -1056,7 +1056,7 @@ defmodule Swarm.Tracker do
         end
       entry(pid: ^pid) = obj ->
         debug "lost connection to #{inspect pid}, but not restartable, removing registration.."
-        {:ok, new_state} = remove_registration(state, obj)
+        {:ok, new_state} = remove_registration(obj, state)
         {:keep_state, new_state}
     end
   end

@@ -298,8 +298,20 @@ defmodule Swarm.Tracker do
       GenStateMachine.cast(from, {:sync_ack, Node.self})
       # load target registry
       for entry(name: name, pid: pid, meta: meta, clock: clock) <- registry do
-        ref = Process.monitor(pid)
-        true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: clock))
+        case Registry.get_by_name(name) do
+          :undefined ->
+            ref = Process.monitor(pid)
+            true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: ref, meta: meta, clock: clock))
+          entry(pid: ^pid, meta: ^meta) ->
+            :ok
+          entry(pid: ^pid, meta: old_meta) ->
+            # Merge meta
+            new_meta = Map.merge(old_meta, meta)
+            :ets.update_element(:swarm_registry, name, [{entry(:meta)+1, new_meta}])
+          entry(pid: _other_pid) ->
+            # the local registration already exists, but for a differnt pid
+            warn "conflicting registration for #{inspect name}!"
+        end
       end
       # update our local clock to match remote clock
       state = %{state | clock: clock}

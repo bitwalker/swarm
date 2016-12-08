@@ -1089,14 +1089,8 @@ defmodule Swarm.Tracker do
       _, {{:nodedown, _}, _} ->
         warn "failed to start #{inspect name} on #{remote_node}: nodedown, retrying operation.."
         new_state = %{state | nodes: state.nodes -- [remote_node], ring: HashRing.remove_node(state.ring, remote_node)}
-        current_node = Node.self
-        case HashRing.key_to_node(new_state.ring, name) do
-          ^current_node ->
-            reply = track(name, m, f, a)
-            GenStateMachine.reply(from, reply)
-          other_node ->
-            start_pid_remotely(other_node, from, name, m, f, a, new_state)
-        end
+        new_node = HashRing.key_to_node(new_state.ring, name)
+        start_pid_remotely(new_node, from, name, m, f, a, new_state)
       kind, err when from != nil ->
         error Exception.format(kind, err, System.stacktrace)
         warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"

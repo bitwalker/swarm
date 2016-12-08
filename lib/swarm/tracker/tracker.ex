@@ -742,7 +742,7 @@ defmodule Swarm.Tracker do
   # This is the callback for tracker events which are being replicated from other nodes in the cluster
   defp handle_replica_event(_from, {:track, name, pid, meta}, rclock, %TrackerState{clock: clock} = state) do
     debug "replicating registration for #{inspect name} (#{inspect pid}) locally"
-    case Registry.get_by_pid_and_name(pid, name) do
+    case Registry.get_by_name(name) do
       entry(name: ^name, pid: ^pid, meta: ^meta) ->
         # We're already up to date
         :keep_state_and_data
@@ -761,6 +761,27 @@ defmodule Swarm.Tracker do
             {:keep_state, %{state | clock: Clock.event(clock)}}
           :else ->
             warn "received track event for #{inspect name}, but local clock conflicts with remote clock, event unhandled"
+            :keep_state_and_data
+        end
+      entry(name: ^name, pid: other_pid, ref: ref) = obj ->
+        # we have conflicting views of this name, compare clocks and fix it
+        current_node = Node.self
+        cond do
+          Clock.leq(clock, rclock) and node(other_pid) == current_node ->
+            # The remote version is dominant, kill the local pid and remove the registration
+            Process.demonitor(ref, [:flush])
+            Process.exit(other_pid, :kill)
+            :ets.delete_object(:swarm_registry, obj)
+            new_ref = Process.monitor(pid)
+            true = :ets.insert_new(:swarm_registry, entry(name: name, pid: pid, ref: new_ref, meta: meta, clock: rclock))
+            {:keep_state, %{state | clock: Clock.event(clock)}}
+          Clock.leq(rclock, clock) ->
+            # The local version is dominant, so ignore this event
+            :keep_state_and_data
+          :else ->
+            # The clocks are conflicted, warn, and ignore this event
+            warn "received track event for #{inspect name}, mismatched pids, " <>
+              "local clock conflicts with remote clock, event unhandled"
             :keep_state_and_data
         end
       :undefined ->

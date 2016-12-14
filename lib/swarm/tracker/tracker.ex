@@ -724,8 +724,9 @@ defmodule Swarm.Tracker do
             end
         end
       entry(name: name, pid: pid) = obj, lclock ->
+        pid_node = node(pid)
         cond do
-          Enum.member?(state.nodes, node(pid)) ->
+          state.self == pid_node or Enum.member?(state.nodes, pid_node) ->
             # the parent node is still up
             lclock
           :else ->

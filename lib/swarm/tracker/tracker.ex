@@ -661,7 +661,7 @@ defmodule Swarm.Tracker do
   # the main receive loop. Topology changes are handled a bit differently during startup.
   defp handle_topology_change({type, remote_node}, %TrackerState{} = state) do
     debug "topology change (#{type} for #{remote_node})"
-    current_node = Node.self
+    current_node = state.self
     new_clock = :ets.foldl(fn
       entry(name: name, pid: pid, meta: %{mfa: {m,f,a}}) = obj, lclock when node(pid) == current_node ->
         case HashRing.key_to_node(state.ring, name) do
@@ -726,12 +726,12 @@ defmodule Swarm.Tracker do
       entry(name: name, pid: pid) = obj, lclock ->
         pid_node = node(pid)
         cond do
-          state.self == pid_node or Enum.member?(state.nodes, pid_node) ->
+          pid_node == current_node or Enum.member?(state.nodes, pid_node) ->
             # the parent node is still up
             lclock
           :else ->
             # the parent node is down, but we cannot restart this pid, so unregister it
-            debug "removing registration for #{inspect name}, #{node(pid)} is down"
+            debug "removing registration for #{inspect name}, #{pid_node} is down"
             {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
             new_state.clock
         end

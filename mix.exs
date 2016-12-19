@@ -41,6 +41,7 @@ defmodule Swarm.Mixfile do
      {:benchee, "~> 0.4", only: :dev},
      {:porcelain, "~> 2.0", only: [:dev, :test]},
      {:libring, "~> 1.0"},
+     {:concuerror, github: "parapluu/concuerror", app: false},
      {:gen_state_machine, "~> 2.0"}]
   end
 

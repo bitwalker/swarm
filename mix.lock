@@ -1,4 +1,5 @@
 %{"benchee": {:hex, :benchee, "0.6.0", "c2565506c621ee010e71d05f555e39a1b937e00810e284bc85463a4d4efc4b00", [:mix], [{:deep_merge, "~> 0.1", [hex: :deep_merge, optional: false]}]},
+  "concuerror": {:git, "https://github.com/parapluu/concuerror.git", "a2f427eadf66539fea42b87ee6fa9bde86309055", []},
   "deep_merge": {:hex, :deep_merge, "0.1.1", "c27866a7524a337b6a039eeb8dd4f17d458fd40fbbcb8c54661b71a22fffe846", [:mix], []},
   "dialyxir": {:hex, :dialyxir, "0.4.1", "236056d6acd25f740f336756c0f3b5dd6e2f0156074bc15f3b779aeee15390c8", [:mix], []},
   "earmark": {:hex, :earmark, "1.0.3", "89bdbaf2aca8bbb5c97d8b3b55c5dd0cff517ecc78d417e87f1d0982e514557b", [:mix], []},

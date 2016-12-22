@@ -14,11 +14,12 @@ defmodule Swarm.Tracker do
   import Swarm.Entry
   alias Swarm.IntervalTreeClock, as: Clock
   alias Swarm.Registry
+  alias Swarm.Distribution.Strategy
 
   defmodule TrackerState do
     @type t :: %__MODULE__{
       clock: nil | Swarm.IntervalTreeClock.t,
-      ring: HashRing.t,
+      strategy: Strategy.t,
       self: atom(),
       sync_node: nil | atom(),
       sync_ref: nil | reference(),
@@ -26,7 +27,7 @@ defmodule Swarm.Tracker do
     }
     defstruct clock: nil,
               nodes: [],
-              ring: nil,
+              strategy: nil,
               self: :'nonode@nohost',
               sync_node: nil,
               sync_ref: nil,
@@ -52,7 +53,7 @@ defmodule Swarm.Tracker do
 
   @doc """
   Tracks a process created via the provided module/function/args with the given name.
-  The process will be distributed on the cluster based on the hash of it's name on the hash ring.
+  The process will be distributed on the cluster based on the implementation of the configured distribution strategy.
   If the process's parent node goes down, it will be restarted on the new node which own's it's keyspace.
   If the cluster topology changes, and the owner of it's keyspace changes, it will be shifted to
   the new owner, after initiating the handoff process as described in the documentation.
@@ -118,9 +119,9 @@ defmodule Swarm.Tracker do
     # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
 
-    ring = Enum.reduce(nodelist, HashRing.new(Node.self), fn n, r ->
-      HashRing.add_node(r, n)
-    end)
+    strategy = Node.self
+           |> Strategy.create()
+           |> Strategy.add_nodes(nodelist)
 
     if Application.get_env(:swarm, :debug, false) do
       _ = Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)
@@ -129,7 +130,7 @@ defmodule Swarm.Tracker do
     timeout = Application.get_env(:swarm, :sync_nodes_timeout, @sync_nodes_timeout)
     Process.send_after(self(), :cluster_join, timeout)
 
-    state = %TrackerState{nodes: nodelist, ring: ring, self: node()}
+    state = %TrackerState{nodes: nodelist, strategy: strategy, self: node()}
 
     {:ok, :cluster_wait, state}
   end
@@ -216,7 +217,7 @@ defmodule Swarm.Tracker do
         {:keep_state, new_state}
     end
   end
-  def syncing(:info, {:nodedown, node, _}, %TrackerState{ring: ring, clock: clock, nodes: nodes, sync_node: node} = state) do
+  def syncing(:info, {:nodedown, node, _}, %TrackerState{strategy: strategy, clock: clock, nodes: nodes, sync_node: node} = state) do
     info "the selected sync node #{node} went down, selecting new node"
     Process.demonitor(state.sync_ref, [:flush])
     case nodes -- [node] do
@@ -224,7 +225,7 @@ defmodule Swarm.Tracker do
         # there are no other nodes to select, we'll be the seed
         info "no other available nodes, becoming seed node"
         new_state = %{state | nodes: [],
-                              ring: HashRing.remove_node(ring, node),
+                              strategy: Strategy.remove_node(strategy, node),
                               clock: Clock.seed(),
                               sync_node: nil,
                               sync_ref: nil}
@@ -233,7 +234,7 @@ defmodule Swarm.Tracker do
         # there are no other nodes to select, nothing to do
         info "no other available nodes, cancelling sync"
         new_state = %{state | nodes: [],
-                              ring: HashRing.remove_node(ring, node),
+                              strategy: Strategy.remove_node(strategy, node),
                               sync_node: nil,
                               sync_ref: nil}
         {:next_state, :tracking, new_state}
@@ -244,7 +245,7 @@ defmodule Swarm.Tracker do
         ref = Process.monitor({__MODULE__, new_sync_node})
         GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self()})
         new_state = %{state | nodes: new_nodes,
-                              ring: HashRing.remove_node(ring, node),
+                              strategy: Strategy.remove_node(strategy, node),
                               sync_node: new_sync_node,
                               sync_ref: ref}
         {:keep_state, new_state}
@@ -383,7 +384,7 @@ defmodule Swarm.Tracker do
               # and resolve the conflict
               rpid_node    = node(rpid)
               lpid_node    = node(lpid)
-              target_node  = HashRing.key_to_node(state.ring, rname)
+              target_node  = Strategy.key_to_node(state.strategy, rname)
               cond do
                 target_node == rpid_node and lpid_node != rpid_node ->
                   debug "remote and local view of #{inspect rname} conflict, but remote is correct, resolving.."
@@ -664,7 +665,7 @@ defmodule Swarm.Tracker do
     current_node = state.self
     new_clock = :ets.foldl(fn
       entry(name: name, pid: pid, meta: %{mfa: {m,f,a}}) = obj, lclock when node(pid) == current_node ->
-        case HashRing.key_to_node(state.ring, name) do
+        case Strategy.key_to_node(state.strategy, name) do
           ^current_node ->
             # This process is correct
             lclock
@@ -708,7 +709,7 @@ defmodule Swarm.Tracker do
             lclock
           :else ->
             # pid is dead, we're going to restart it
-            case HashRing.key_to_node(state.ring, name) do
+            case Strategy.key_to_node(state.strategy, name) do
               ^current_node ->
                 debug "restarting #{inspect name} on #{current_node}"
                 {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
@@ -916,9 +917,9 @@ defmodule Swarm.Tracker do
   end
 
   # This is the handler for local operations on the tracker which require a response.
-  defp handle_call({:whereis, name}, from, %TrackerState{ring: ring}) do
+  defp handle_call({:whereis, name}, from, %TrackerState{strategy: strategy}) do
     current_node = Node.self
-    case HashRing.key_to_node(ring, name) do
+    case Strategy.key_to_node(strategy, name) do
       ^current_node ->
         case Registry.get_by_name(name) do
           :undefined ->
@@ -945,7 +946,7 @@ defmodule Swarm.Tracker do
     debug "registering #{inspect pid} as #{inspect name}, with metadata #{inspect meta}"
     add_registration({name, pid, meta}, from, state)
   end
-  defp handle_call({:track, name, m, f, a}, from, %TrackerState{ring: ring} = state) do
+  defp handle_call({:track, name, m, f, a}, from, %TrackerState{strategy: strategy} = state) do
     current_node = Node.self
     case from do
       {from_pid, _} when node(from_pid) != current_node ->
@@ -953,7 +954,7 @@ defmodule Swarm.Tracker do
       _ ->
         debug "registering #{inspect name} as process started by #{m}.#{f}/#{length(a)} with args #{inspect a}"
     end
-    case HashRing.key_to_node(ring, name) do
+    case Strategy.key_to_node(strategy, name) do
       ^current_node ->
         case Registry.get_by_name(name) do
           :undefined ->
@@ -1051,7 +1052,7 @@ defmodule Swarm.Tracker do
   end
 
   # Called when a pid dies, and the monitor is triggered
-  defp handle_monitor(ref, pid, :noconnection, %TrackerState{nodes: nodes, ring: ring} = state) do
+  defp handle_monitor(ref, pid, :noconnection, %TrackerState{nodes: nodes, strategy: strategy} = state) do
     # lost connection to the node this pid is running on, check if we should restart it
     case Registry.get_by_ref(ref) do
       :undefined ->
@@ -1062,11 +1063,11 @@ defmodule Swarm.Tracker do
         current_node = Node.self
         # this event may have occurred before we get a nodedown event, so
         # for the purposes of this handler, preemptively remove the node from the
-        # ring when calculating the new node
+        # distribution strategy when calculating the new node
         pid_node = node(pid)
-        ring  = HashRing.remove_node(ring, pid_node)
-        state = %{state | nodes: nodes -- [pid_node], ring: ring}
-        case HashRing.key_to_node(ring, name) do
+        strategy  = Strategy.remove_node(strategy, pid_node)
+        state = %{state | nodes: nodes -- [pid_node], strategy: strategy}
+        case Strategy.key_to_node(strategy, name) do
           ^current_node ->
             debug "restarting #{inspect name} (#{inspect pid}) on #{current_node}"
             {:ok, new_state} = remove_registration(obj, state)
@@ -1122,8 +1123,8 @@ defmodule Swarm.Tracker do
         start_pid_remotely(remote_node, from, name, m, f, a, state)
       _, {{:nodedown, _}, _} ->
         warn "failed to start #{inspect name} on #{remote_node}: nodedown, retrying operation.."
-        new_state = %{state | nodes: state.nodes -- [remote_node], ring: HashRing.remove_node(state.ring, remote_node)}
-        new_node = HashRing.key_to_node(new_state.ring, name)
+        new_state = %{state | nodes: state.nodes -- [remote_node], strategy: Strategy.remove_node(state.strategy, remote_node)}
+        new_node = Strategy.key_to_node(new_state.strategy, name)
         start_pid_remotely(new_node, from, name, m, f, a, new_state)
       kind, err when from != nil ->
         error Exception.format(kind, err, System.stacktrace)
@@ -1289,16 +1290,16 @@ defmodule Swarm.Tracker do
     state
   end
 
-  # A new node has been added to the cluster, we need to update the hash ring and handle shifting
+  # A new node has been added to the cluster, we need to update the distribution strategy and handle shifting
   # processes to new nodes based on the new topology.
-  defp nodeup(%TrackerState{nodes: nodes, ring: ring} = state, node) do
+  defp nodeup(%TrackerState{nodes: nodes, strategy: strategy} = state, node) do
     cond do
       node == Node.self ->
-        new_ring = ring
-        |> HashRing.remove_node(state.self)
-        |> HashRing.add_node(node)
+        new_strategy = strategy
+        |> Strategy.remove_node(state.self)
+        |> Strategy.add_node(node)
         info "node name changed from #{state.self} to #{node}"
-        {:ok, %{state | self: node, ring: new_ring}}
+        {:ok, %{state | self: node, strategy: new_strategy}}
       Enum.member?(nodes, node) ->
         {:ok, state}
       ignore_node?(node) ->
@@ -1307,7 +1308,7 @@ defmodule Swarm.Tracker do
         case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
           {:ok, _} ->
             info "nodeup #{node}"
-            new_state = %{state | nodes: [node|nodes], ring: HashRing.add_node(ring, node)}
+            new_state = %{state | nodes: [node|nodes], strategy: Strategy.add_node(strategy, node)}
             {:ok, new_state, {:topology_change, {:nodeup, node}}}
           other ->
             warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect other}"
@@ -1316,15 +1317,15 @@ defmodule Swarm.Tracker do
     end
   end
 
-  # A remote node went down, we need to update the hash ring and handle restarting/shifting processes
+  # A remote node went down, we need to update the distribution strategy and handle restarting/shifting processes
   # as needed based on the new topology
-  defp nodedown(%TrackerState{nodes: nodes, ring: ring} = state, node) do
+  defp nodedown(%TrackerState{nodes: nodes, strategy: strategy} = state, node) do
     cond do
       Enum.member?(nodes, node) ->
         info "nodedown #{node}"
-        ring = HashRing.remove_node(ring, node)
+        strategy = Strategy.remove_node(strategy, node)
         pending_reqs = Enum.filter(state.pending_sync_reqs, fn ^node -> false; _ -> true end)
-        new_state = %{state | nodes: nodes -- [node], ring: ring, pending_sync_reqs: pending_reqs}
+        new_state = %{state | nodes: nodes -- [node], strategy: strategy, pending_sync_reqs: pending_reqs}
         {:ok, new_state, {:topology_change, {:nodedown, node}}}
       :else ->
         {:ok, state}

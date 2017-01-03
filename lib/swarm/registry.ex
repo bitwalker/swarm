@@ -4,6 +4,8 @@ defmodule Swarm.Registry do
   alias Swarm.{Tracker, Entry}
   use GenServer
 
+  @table_name :swarm_registry
+
   ## Public API
 
   defdelegate register(name, pid), to: Tracker, as: :track
@@ -35,7 +37,7 @@ defmodule Swarm.Registry do
 
   @spec members(group :: term) :: [pid]
   def members(group) do
-    :ets.select(:swarm_registry, [{entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{group => :'$4'}, clock: :'$5'), [], [:'$_']}])
+    :ets.select(@table_name, [{entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{group => :'$4'}, clock: :'$5'), [], [:'$_']}])
     |> Enum.map(fn entry(pid: pid) -> pid end)
     |> Enum.uniq
   end
@@ -68,15 +70,17 @@ defmodule Swarm.Registry do
     end
   end
 
+  ### Low-level ETS manipulation functions
+
   @spec all() :: [{name :: term(), pid()}]
   def all() do
-    :ets.tab2list(:swarm_registry)
+    :ets.tab2list(@table_name)
     |> Enum.map(fn entry(name: name, pid: pid) -> {name, pid} end)
   end
 
   @spec get_by_name(term()) :: :undefined | Entry.entry
   def get_by_name(name) do
-    case :ets.lookup(:swarm_registry, name) do
+    case :ets.lookup(@table_name, name) do
       []    -> :undefined
       [obj] -> obj
     end
@@ -84,7 +88,7 @@ defmodule Swarm.Registry do
 
   @spec get_by_pid(pid) :: :undefined | [Entry.entry]
   def get_by_pid(pid) do
-    case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: pid, ref: :'$2', meta: :'$3', clock: :'$4')) do
+    case :ets.match_object(@table_name, entry(name: :'$1', pid: pid, ref: :'$2', meta: :'$3', clock: :'$4')) do
       [] -> :undefined
       list when is_list(list) -> list
     end
@@ -92,7 +96,7 @@ defmodule Swarm.Registry do
 
   @spec get_by_pid_and_name(pid(), term()) :: :undefined | Entry.entry
   def get_by_pid_and_name(pid, name) do
-    case :ets.match_object(:swarm_registry, entry(name: name, pid: pid, ref: :'$1', meta: :'$2', clock: :'$3')) do
+    case :ets.match_object(@table_name, entry(name: name, pid: pid, ref: :'$1', meta: :'$2', clock: :'$3')) do
       [] -> :undefined
       [obj] -> obj
     end
@@ -100,7 +104,7 @@ defmodule Swarm.Registry do
 
   @spec get_by_ref(reference()) :: :undefined | Entry.entry
   def get_by_ref(ref) do
-    case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: :'$2', ref: ref, meta: :'$3', clock: :'$4')) do
+    case :ets.match_object(@table_name, entry(name: :'$1', pid: :'$2', ref: ref, meta: :'$3', clock: :'$4')) do
       []    -> :undefined
       [obj] -> obj
     end
@@ -108,7 +112,7 @@ defmodule Swarm.Registry do
 
   @spec get_by_meta(term()) :: :undefined | [Entry.entry]
   def get_by_meta(key) do
-    case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => :'$4'}, clock: :'$5')) do
+    case :ets.match_object(@table_name, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => :'$4'}, clock: :'$5')) do
       []    -> :undefined
       list when is_list(list) -> list
     end
@@ -116,7 +120,7 @@ defmodule Swarm.Registry do
 
   @spec get_by_meta(term(), term()) :: :undefined | [Entry.entry]
   def get_by_meta(key, value) do
-    case :ets.match_object(:swarm_registry, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => value}, clock: :'$4')) do
+    case :ets.match_object(@table_name, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => value}, clock: :'$4')) do
       []    -> :undefined
       list when is_list(list) -> list
     end
@@ -127,7 +131,7 @@ defmodule Swarm.Registry do
   def start_link(), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
   def init(_) do
     # start ETS table for registry
-    t = :ets.new(:swarm_registry, [
+    t = :ets.new(@table_name, [
           :set,
           :named_table,
           :public,

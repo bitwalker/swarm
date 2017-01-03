@@ -78,6 +78,43 @@ defmodule Swarm.Registry do
     |> Enum.map(fn entry(name: name, pid: pid) -> {name, pid} end)
   end
 
+  @spec snapshot() :: [Entry.entry]
+  def snapshot() do
+    :ets.tab2list(@table_name)
+  end
+
+  @doc """
+  Inserts a new registration, and returns true if successful, or false if not
+  """
+  @spec new(Entry.entry) :: boolean
+  def new(entry() = reg) do
+    :ets.insert_new(@table_name, reg)
+  end
+
+  @doc """
+  Like `new/1`, but raises if the insertion fails.
+  """
+  @spec new!(Entry.entry) :: true | no_return
+  def new!(entry() = reg) do
+    true = :ets.insert_new(@table_name, reg)
+  end
+
+  @spec remove(Entry.entry) :: true
+  def remove(entry() = reg) do
+    :ets.delete_object(@table_name, reg)
+  end
+
+  @spec remove_by_pid(pid) :: true
+  def remove_by_pid(pid) when is_pid(pid) do
+    case get_by_pid(pid) do
+      :undefined ->
+        true
+      entries when is_list(entries) ->
+        Enum.each(entries, &:ets.delete_object(@table_name, &1))
+        true
+    end
+  end
+
   @spec get_by_name(term()) :: :undefined | Entry.entry
   def get_by_name(name) do
     case :ets.lookup(@table_name, name) do
@@ -123,6 +160,20 @@ defmodule Swarm.Registry do
     case :ets.match_object(@table_name, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => value}, clock: :'$4')) do
       []    -> :undefined
       list when is_list(list) -> list
+    end
+  end
+
+  @spec reduce(term(), (Entry.entry, term() -> term())) :: term()
+  def reduce(acc, fun) when is_function(fun, 2) do
+    :ets.foldl(fun, acc, @table_name)
+  end
+
+
+  @spec update(term(), Keyword.t) :: boolean
+  defmacro update(key, updates) do
+    fields = Enum.map(updates, fn {k, v} -> {Entry.index(k)+1, v} end)
+    quote bind_quoted: [table_name: @table_name, key: key, fields: fields] do
+      :ets.update_element(table_name, key, fields)
     end
   end
 

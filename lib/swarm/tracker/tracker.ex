@@ -628,7 +628,7 @@ defmodule Swarm.Tracker do
   end
 
   # This is the callback for when a process is being handed off from a remote node to this node.
-  defp handle_handoff(_from, {name, m, f, a, handoff_state, _rclock}, %TrackerState{clock: clock} = state) do
+  defp handle_handoff(from, {name, m, f, a, handoff_state, rclock}, %TrackerState{clock: clock} = state) do
     try do
       # If a network split is being healed, we almost certainly will have a
       # local registration already for this name (since it was present on this side of the split)
@@ -651,6 +651,14 @@ defmodule Swarm.Tracker do
           meta = %{mfa: {m,f,a}}
           broadcast_event(state.nodes, Clock.peek(new_clock), {:track, name, pid, meta})
           {:keep_state, %{state | clock: new_clock}}
+        entry(pid: pid, ref: ref) = obj when node(pid) == node(from) ->
+          # We have received the handoff before we've received the untrack event, but because
+          # the handoff is coming from the node where the registration existed, we can safely
+          # remove the registration now, and proceed with the handoff
+          Process.demonitor(ref, [:flush])
+          Registry.remove(obj)
+          # Re-enter this callback to take advantage of the first clause
+          handle_handoff(from, {name, m, f, a, handoff_state, rclock}, state)
       end
     catch
       kind, err ->

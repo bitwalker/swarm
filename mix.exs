@@ -19,7 +19,7 @@ defmodule Swarm.Mixfile do
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
      description: "A fast, multi-master, distributed global process registry, with automatic distribution of worker processes.",
-     package: package,
+     package: package(),
      docs: docs(),
      deps: deps(),
      aliases: aliases(),

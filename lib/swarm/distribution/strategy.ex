@@ -13,7 +13,7 @@ defmodule Swarm.Distribution.Strategy do
   process for storing the distribution state, because it has the potential to become a bottleneck otherwise,
   however this is really up to the needs of your situation, just know that you can go either way.
   """
-  alias Swarm.Distribution.Strategy.Ring, as: RingStrategy
+  alias Swarm.Distribution.Ring, as: RingStrategy
 
   defmacro __using__(_) do
     quote do

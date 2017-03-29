@@ -120,9 +120,13 @@ defmodule Swarm.Tracker do
     # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
 
-    strategy = Node.self
-           |> Strategy.create()
-           |> Strategy.add_nodes(nodelist)
+    strategy =
+      case ignore_node?(Node.self) do
+        true ->
+          Strategy.create() |> Strategy.add_nodes(nodelist)
+        false ->
+          Node.self |> Strategy.create() |> Strategy.add_nodes(nodelist)
+      end
 
     if Application.get_env(:swarm, :debug, false) do
       _ = Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)

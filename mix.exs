@@ -14,7 +14,7 @@ defmodule Swarm.Mixfile do
   def project do
     [app: :swarm,
      version: "3.0.5",
-     elixir: "~> 1.3",
+     elixir: "~> 1.5",
      elixirc_paths: elixirc_paths(Mix.env),
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
@@ -31,7 +31,7 @@ defmodule Swarm.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :crypto, :libring, :gen_state_machine],
+    [extra_applications: [:logger, :crypto],
      mod: {Swarm, []}]
   end
 

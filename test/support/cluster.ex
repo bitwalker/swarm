@@ -56,6 +56,7 @@ defmodule Swarm.Cluster do
     for {app_name, _, _} <- Application.loaded_applications do
       rpc(node, Application, :ensure_all_started, [app_name])
     end
+    rpc(node, MyApp.WorkerSup, :start_link, [])
   end
 
   defp node_name(node_host) do

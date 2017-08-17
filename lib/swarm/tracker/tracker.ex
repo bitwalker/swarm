@@ -779,7 +779,7 @@ defmodule Swarm.Tracker do
         end
     end)
 
-    GenStateMachine.cast(self(), {:retry_pending_trackings})
+    GenStateMachine.cast(__MODULE__, {:retry_pending_trackings})
 
     info "topology change complete"
     {:keep_state, %{state | clock: new_clock}}
@@ -991,7 +991,7 @@ defmodule Swarm.Tracker do
     add_registration({name, pid, meta}, from, state)
   end
   defp handle_call({:track, name, m, f, a}, from, state) do
-    current_node = Node.self
+    current_node = Node.self()
     case from do
       {from_pid, _} when node(from_pid) != current_node ->
         debug "#{inspect node(from_pid)} is registering #{inspect name} as process started by #{m}.#{f}/#{length(a)} with args #{inspect a}"
@@ -1164,8 +1164,8 @@ defmodule Swarm.Tracker do
         end
 
       remote_node ->
+        debug "starting #{inspect name} on remote node #{remote_node}"
         {:ok, _pid} = Task.start(fn ->
-          debug "starting #{inspect name} on #{remote_node}"
           start_pid_remotely(remote_node, from, name, m, f, a, state)
         end)
         :keep_state_and_data

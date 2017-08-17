@@ -31,11 +31,10 @@ defmodule Swarm.Distribution.StaticQuorumRing do
 
   alias Swarm.Distribution.StaticQuorumRing
 
-  defstruct [:node_count, :static_quorum_size, :ring]
+  defstruct [:static_quorum_size, :ring]
 
   def create do
     %StaticQuorumRing{
-      node_count: 0,
       static_quorum_size: Application.get_env(:swarm, :static_quorum_size, 2),
       ring: HashRing.new(),
     }
@@ -43,28 +42,24 @@ defmodule Swarm.Distribution.StaticQuorumRing do
 
   def add_node(quorum, node) do
     %StaticQuorumRing{quorum |
-      node_count: quorum.node_count + 1,
       ring: HashRing.add_node(quorum.ring, node),
     }
   end
 
   def add_node(quorum, node, weight) do
     %StaticQuorumRing{quorum |
-      node_count: quorum.node_count + 1,
       ring: HashRing.add_node(quorum.ring, node, weight),
     }
   end
 
   def add_nodes(quorum, nodes) do
     %StaticQuorumRing{quorum |
-      node_count: quorum.node_count + length(nodes),
       ring: HashRing.add_nodes(quorum.ring, nodes),
     }
   end
 
   def remove_node(quorum, node) do
     %StaticQuorumRing{quorum |
-      node_count: quorum.node_count - 1,
       ring: HashRing.remove_node(quorum.ring, node),
     }
   end
@@ -74,10 +69,10 @@ defmodule Swarm.Distribution.StaticQuorumRing do
 
   If the available nodes in the cluster are fewer than the minimum node count it returns `:undefined`.
   """
-  def key_to_node(%StaticQuorumRing{static_quorum_size: static_quorum_size} = quorum, key) do
-    case quorum.node_count do
-      count when count < static_quorum_size -> :undefined
-      _ -> HashRing.key_to_node(quorum.ring, key)
+  def key_to_node(%StaticQuorumRing{static_quorum_size: static_quorum_size, ring: ring}, key) do
+    case length(ring.nodes) do
+      node_count when node_count < static_quorum_size -> :undefined
+      _ -> HashRing.key_to_node(ring, key)
     end
   end
 end

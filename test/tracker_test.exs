@@ -38,5 +38,4 @@ defmodule Swarm.TrackerTests do
 
     assert [entry(pid: ^pid)] = :ets.lookup(:swarm_registry, :test1)
   end
-
 end

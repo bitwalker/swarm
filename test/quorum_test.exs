@@ -8,7 +8,7 @@ defmodule Swarm.QuorumTests do
   setup_all do
     :rand.seed(:exs64)
 
-    Application.put_env(:swarm, :min_quorum_node_size, 3)
+    Application.put_env(:swarm, :static_quorum_size, 3)
     restart_cluster_using_strategy(StaticQuorumRing)
 
     {:ok, _} = MyApp.WorkerSup.start_link()

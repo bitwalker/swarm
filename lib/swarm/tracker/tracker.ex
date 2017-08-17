@@ -694,11 +694,11 @@ defmodule Swarm.Tracker do
       entry(name: name, pid: pid, meta: %{mfa: {m,f,a}}) = obj, lclock when node(pid) == current_node ->
         case Strategy.key_to_node(state.strategy, name) do
           :undefined ->
-            # No node available to host process, it must be stopped
+            # No node available available to host process, it must be stopped
             debug "#{inspect pid} must be stopped as no node is available to host it"
             {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
             send(pid, {:swarm, :die})
-            # Track pending registration to restart process when node becomes available
+            # Track pending registration to restart process when a node becomes available
             GenStateMachine.cast(__MODULE__, {:track_pending, name, m, f, a})
             new_state.clock
           ^current_node ->
@@ -746,8 +746,12 @@ defmodule Swarm.Tracker do
             # pid is dead, we're going to restart it
             case Strategy.key_to_node(state.strategy, name) do
               :undefined ->
-                # no node to restart process on
-                lclock
+                # No node available to restart process on, so remove registrartion
+                debug "no node available to restart #{inspect name} on"
+                {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
+                # Track pending registration to restart process when a node becomes available
+                GenStateMachine.cast(__MODULE__, {:track_pending, name, m, f, a})
+                new_state.clock
               ^current_node ->
                 debug "restarting #{inspect name} on #{current_node}"
                 {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})

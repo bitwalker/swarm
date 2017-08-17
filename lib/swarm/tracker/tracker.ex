@@ -17,6 +17,21 @@ defmodule Swarm.Tracker do
   alias Swarm.Registry
   alias Swarm.Distribution.Strategy
 
+  defmodule Tracking do
+    @type t :: %__MODULE__{
+      name: term(),
+      m: atom(),
+      f: function(),
+      a: list(),
+      from: {pid, tag :: term},
+    }
+    defstruct name: nil,
+              m: nil,
+              f: nil,
+              a: nil,
+              from: nil
+  end
+
   defmodule TrackerState do
     @type t :: %__MODULE__{
       clock: nil | Swarm.IntervalTreeClock.t,
@@ -24,7 +39,8 @@ defmodule Swarm.Tracker do
       self: atom(),
       sync_node: nil | atom(),
       sync_ref: nil | reference(),
-      pending_sync_reqs: [pid()]
+      pending_sync_reqs: [pid()],
+      pending_trackings: list(Tracking.t)
     }
     defstruct clock: nil,
               nodes: [],
@@ -32,7 +48,8 @@ defmodule Swarm.Tracker do
               self: :'nonode@nohost',
               sync_node: nil,
               sync_ref: nil,
-              pending_sync_reqs: []
+              pending_sync_reqs: [],
+              pending_trackings: []
   end
 
   # Public API
@@ -675,6 +692,12 @@ defmodule Swarm.Tracker do
     new_clock = Registry.reduce(state.clock, fn
       entry(name: name, pid: pid, meta: %{mfa: {m,f,a}}) = obj, lclock when node(pid) == current_node ->
         case Strategy.key_to_node(state.strategy, name) do
+          :undefined ->
+            # Process must be stopped
+            debug "#{inspect pid} must be stopped as no node is available to host it"
+            {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
+            send(pid, {:swarm, :die})
+            new_state.clock
           ^current_node ->
             # This process is correct
             lclock
@@ -719,6 +742,9 @@ defmodule Swarm.Tracker do
           :else ->
             # pid is dead, we're going to restart it
             case Strategy.key_to_node(state.strategy, name) do
+              :undefined ->
+                # no node to restart process on
+                lclock
               ^current_node ->
                 debug "restarting #{inspect name} on #{current_node}"
                 {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
@@ -746,6 +772,9 @@ defmodule Swarm.Tracker do
             new_state.clock
         end
     end)
+
+    GenStateMachine.cast(self(), {:track_pending_trackings})
+
     info "topology change complete"
     {:keep_state, %{state | clock: new_clock}}
   end
@@ -927,6 +956,8 @@ defmodule Swarm.Tracker do
   defp handle_call({:whereis, name}, from, %TrackerState{strategy: strategy}) do
     current_node = Node.self
     case Strategy.key_to_node(strategy, name) do
+      :undefined ->
+        GenStateMachine.reply(from, :undefined)
       ^current_node ->
         case Registry.get_by_name(name) do
           :undefined ->
@@ -961,48 +992,7 @@ defmodule Swarm.Tracker do
       _ ->
         debug "registering #{inspect name} as process started by #{m}.#{f}/#{length(a)} with args #{inspect a}"
     end
-    case Strategy.key_to_node(strategy, name) do
-      ^current_node ->
-        case Registry.get_by_name(name) do
-          :undefined ->
-            debug "starting #{inspect name} on #{current_node}"
-            try do
-              case apply(m, f, a) do
-                {:ok, pid} ->
-                  debug "started #{inspect name} on #{current_node}"
-                  add_registration({name, pid, %{mfa: {m,f,a}}}, from, state)
-                err when from != nil ->
-                  warn "failed to start #{inspect name} on #{current_node}: #{inspect err}"
-                  GenStateMachine.reply(from, {:error, {:invalid_return, err}})
-                  :keep_state_and_data
-                err ->
-                  warn "failed to start #{inspect name} on #{current_node}: #{inspect err}"
-                  :keep_state_and_data
-              end
-            catch
-              kind, reason when from != nil ->
-                warn Exception.format(kind, reason, System.stacktrace)
-                GenStateMachine.reply(from, {:error, reason})
-                :keep_state_and_data
-              kind, reason ->
-                warn Exception.format(kind, reason, System.stacktrace)
-                :keep_state_and_data
-            end
-          entry(pid: pid) when from != nil ->
-            debug "found #{inspect name} already registered on #{node(pid)}"
-            GenStateMachine.reply(from, {:error, {:already_registered, pid}})
-            :keep_state_and_data
-          entry(pid: pid) ->
-            debug "found #{inspect name} already registered on #{node(pid)}"
-            :keep_state_and_data
-        end
-      remote_node ->
-        {:ok, _pid} = Task.start(fn ->
-          debug "starting #{inspect name} on #{remote_node}"
-          start_pid_remotely(remote_node, from, name, m, f, a, state)
-        end)
-        :keep_state_and_data
-    end
+    do_track(%Tracking{name: name, m: m, f: f, a: a, from: from}, state)
   end
   defp handle_call({:untrack, pid}, from, %TrackerState{} = state) do
     debug "untrack #{inspect pid}"
@@ -1042,6 +1032,19 @@ defmodule Swarm.Tracker do
     GenStateMachine.cast(from, {:sync_ack, Node.self})
     :keep_state_and_data
   end
+  defp handle_cast({:track_pending_trackings}, %{pending_trackings: []} = state) do
+    :keep_state_and_data
+  end
+  defp handle_cast({:track_pending_trackings}, %{pending_trackings: pending_trackings} = state) do
+    debug "track pending trackings: #{inspect state.pending_trackings}"
+    state = Enum.reduce(pending_trackings, %TrackerState{state | pending_trackings: []}, fn (tracking, state) ->
+      case do_track(tracking, state) do
+        {:keep_state, state} -> state
+        :keep_state_and_data -> state
+      end
+    end)
+    {:keep_state, state}
+  end
   defp handle_cast(msg, _state) do
     warn "unrecognized cast: #{inspect msg}"
     :keep_state_and_data
@@ -1075,6 +1078,10 @@ defmodule Swarm.Tracker do
         strategy  = Strategy.remove_node(strategy, pid_node)
         state = %{state | nodes: nodes -- [pid_node], strategy: strategy}
         case Strategy.key_to_node(strategy, name) do
+          :undefined ->
+            debug "#{inspect name} (#{inspect pid}) has no node available to host, skipping"
+            {:ok, new_state} = remove_registration(obj, state)
+            {:keep_state, new_state}
           ^current_node ->
             debug "restarting #{inspect name} (#{inspect pid}) on #{current_node}"
             {:ok, new_state} = remove_registration(obj, state)
@@ -1099,6 +1106,60 @@ defmodule Swarm.Tracker do
         debug "#{inspect name} is down: #{inspect reason}"
         {:ok, new_state} = remove_registration(obj, state)
         {:keep_state, new_state}
+    end
+  end
+
+  # attempt to start a named process on its destination node
+  defp do_track(%{name: name, m: m, f: f, a: a, from: from} = tracking, %{nodes: nodes, strategy: strategy} = state) do
+    current_node = Node.self()
+
+    case Strategy.key_to_node(strategy, name) do
+      :undefined ->
+        debug "no node available to start #{inspect name} process using #{m}.#{f}/#{length(a)} with args #{inspect a}"
+        state = %TrackerState{state | pending_trackings: state.pending_trackings ++ [tracking]}
+        {:keep_state, state}
+
+      ^current_node ->
+        case Registry.get_by_name(name) do
+          :undefined ->
+            debug "starting #{inspect name} on #{current_node}"
+            try do
+              case apply(m, f, a) do
+                {:ok, pid} ->
+                  debug "started #{inspect name} on #{current_node}"
+                  add_registration({name, pid, %{mfa: {m,f,a}}}, from, state)
+                err when from != nil ->
+                  warn "failed to start #{inspect name} on #{current_node}: #{inspect err}"
+                  GenStateMachine.reply(from, {:error, {:invalid_return, err}})
+                  :keep_state_and_data
+                err ->
+                  warn "failed to start #{inspect name} on #{current_node}: #{inspect err}"
+                  :keep_state_and_data
+              end
+            catch
+              kind, reason when from != nil ->
+                warn Exception.format(kind, reason, System.stacktrace)
+                GenStateMachine.reply(from, {:error, reason})
+                :keep_state_and_data
+              kind, reason ->
+                warn Exception.format(kind, reason, System.stacktrace)
+                :keep_state_and_data
+            end
+          entry(pid: pid) when from != nil ->
+            debug "found #{inspect name} already registered on #{node(pid)}"
+            GenStateMachine.reply(from, {:error, {:already_registered, pid}})
+            :keep_state_and_data
+          entry(pid: pid) ->
+            debug "found #{inspect name} already registered on #{node(pid)}"
+            :keep_state_and_data
+        end
+
+      remote_node ->
+        {:ok, _pid} = Task.start(fn ->
+          debug "starting #{inspect name} on #{remote_node}"
+          start_pid_remotely(remote_node, from, name, m, f, a, state)
+        end)
+        :keep_state_and_data
     end
   end
 
@@ -1131,8 +1192,13 @@ defmodule Swarm.Tracker do
       _, {{:nodedown, _}, _} ->
         warn "failed to start #{inspect name} on #{remote_node}: nodedown, retrying operation.."
         new_state = %{state | nodes: state.nodes -- [remote_node], strategy: Strategy.remove_node(state.strategy, remote_node)}
-        new_node = Strategy.key_to_node(new_state.strategy, name)
-        start_pid_remotely(new_node, from, name, m, f, a, new_state)
+        case Strategy.key_to_node(new_state.strategy, name) do
+          :undefined ->
+            warn "failed to start #{inspect name} as no node available"
+            GenStateMachine.reply(from, {:error, :nodedown})
+          new_node ->
+            start_pid_remotely(new_node, from, name, m, f, a, new_state)
+        end
       kind, err when from != nil ->
         error Exception.format(kind, err, System.stacktrace)
         warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"

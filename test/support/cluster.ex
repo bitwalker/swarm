@@ -17,6 +17,7 @@ defmodule Swarm.Cluster do
   end
 
   def stop do
+    Application.stop(:swarm)
     :ok = Application.unload(:swarm)
 
     nodes = Node.list(:connected)

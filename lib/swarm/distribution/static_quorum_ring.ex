@@ -1,6 +1,6 @@
 defmodule Swarm.Distribution.StaticQuorumRing do
   @moduledoc """
-  A quorum is the minimum number of votes that a distributed cluster has to obtain in order to be
+  A quorum is the minimum number of nodes that a distributed cluster has to obtain in order to be
   allowed to perform an operation in a distributed system.
 
   Used to enforce consistent operation in a distributed system.

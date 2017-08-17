@@ -48,6 +48,11 @@ defmodule Swarm.Distribution.StaticQuorumRing do
     }
   end
 
+  @doc """
+  Maps a key to a specific node via the current distribution strategy.
+
+  If the available nodes in the cluster are fewer than the minimum node count it returns `:undefined`.
+  """
   def key_to_node(%StaticQuorumRing{min_node_count: min_node_count} = quorum, key) do
     case quorum.node_count do
       count when count < min_node_count -> :undefined

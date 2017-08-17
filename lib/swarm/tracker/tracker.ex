@@ -689,14 +689,17 @@ defmodule Swarm.Tracker do
   defp handle_topology_change({type, remote_node}, %TrackerState{} = state) do
     debug "topology change (#{type} for #{remote_node})"
     current_node = state.self
+    current_pid = self()
     new_clock = Registry.reduce(state.clock, fn
       entry(name: name, pid: pid, meta: %{mfa: {m,f,a}}) = obj, lclock when node(pid) == current_node ->
         case Strategy.key_to_node(state.strategy, name) do
           :undefined ->
-            # Process must be stopped
+            # No node available to host process, it must be stopped
             debug "#{inspect pid} must be stopped as no node is available to host it"
             {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
             send(pid, {:swarm, :die})
+            # Track pending registration to restart process when node becomes available
+            GenStateMachine.cast(__MODULE__, {:track_pending, name, m, f, a})
             new_state.clock
           ^current_node ->
             # This process is correct
@@ -773,7 +776,7 @@ defmodule Swarm.Tracker do
         end
     end)
 
-    GenStateMachine.cast(self(), {:track_pending_trackings})
+    GenStateMachine.cast(self(), {:retry_pending_trackings})
 
     info "topology change complete"
     {:keep_state, %{state | clock: new_clock}}
@@ -984,7 +987,7 @@ defmodule Swarm.Tracker do
     debug "registering #{inspect pid} as #{inspect name}, with metadata #{inspect meta}"
     add_registration({name, pid, meta}, from, state)
   end
-  defp handle_call({:track, name, m, f, a}, from, %TrackerState{strategy: strategy} = state) do
+  defp handle_call({:track, name, m, f, a}, from, state) do
     current_node = Node.self
     case from do
       {from_pid, _} when node(from_pid) != current_node ->
@@ -1032,18 +1035,21 @@ defmodule Swarm.Tracker do
     GenStateMachine.cast(from, {:sync_ack, Node.self})
     :keep_state_and_data
   end
-  defp handle_cast({:track_pending_trackings}, %{pending_trackings: []} = state) do
+  defp handle_cast({:retry_pending_trackings}, %{pending_trackings: []} = state) do
     :keep_state_and_data
   end
-  defp handle_cast({:track_pending_trackings}, %{pending_trackings: pending_trackings} = state) do
-    debug "track pending trackings: #{inspect state.pending_trackings}"
+  defp handle_cast({:retry_pending_trackings}, %{pending_trackings: pending_trackings} = state) do
+    debug "retry pending trackings: #{inspect state.pending_trackings}"
     state = Enum.reduce(pending_trackings, %TrackerState{state | pending_trackings: []}, fn (tracking, state) ->
       case do_track(tracking, state) do
-        {:keep_state, state} -> state
-        :keep_state_and_data -> state
+        {:keep_state, new_state} -> new_state
+        :keep_state_and_data     -> state
       end
     end)
     {:keep_state, state}
+  end
+  defp handle_cast({:track_pending, name, m, f, a}, state) do
+    do_track(%Tracking{name: name, m: m, f: f, a: a}, state)
   end
   defp handle_cast(msg, _state) do
     warn "unrecognized cast: #{inspect msg}"
@@ -1115,7 +1121,7 @@ defmodule Swarm.Tracker do
 
     case Strategy.key_to_node(strategy, name) do
       :undefined ->
-        debug "no node available to start #{inspect name} process using #{m}.#{f}/#{length(a)} with args #{inspect a}"
+        debug "no node available to start #{inspect name} process"
         state = %TrackerState{state | pending_trackings: state.pending_trackings ++ [tracking]}
         {:keep_state, state}
 

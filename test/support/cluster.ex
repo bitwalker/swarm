@@ -9,21 +9,13 @@ defmodule Swarm.Cluster do
 
     nodes = Application.get_env(:swarm, :nodes, [])
 
-    :ok = Application.load(:swarm)
+    case Application.load(:swarm) do
+      :ok -> :ok
+      {:error, {:already_loaded, :swarm}} -> :ok
+    end
 
     nodes
     |> Enum.map(&Task.async(fn -> spawn_node(&1) end))
-    |> Enum.map(&Task.await(&1, 30_000))
-  end
-
-  def stop do
-    Application.stop(:swarm)
-    :ok = Application.unload(:swarm)
-
-    nodes = Node.list(:connected)
-
-    nodes
-    |> Enum.map(&Task.async(fn -> stop_node(&1) end))
     |> Enum.map(&Task.await(&1, 30_000))
   end
 
@@ -33,6 +25,18 @@ defmodule Swarm.Cluster do
     transfer_configuration(node)
     ensure_applications_started(node)
     {:ok, node}
+  end
+
+  def stop do
+    nodes = Node.list(:connected)
+
+    nodes
+    |> Enum.map(&Task.async(fn -> stop_node(&1) end))
+    |> Enum.map(&Task.await(&1, 30_000))
+  end
+
+  def stop_node(node) do
+    :ok = :slave.stop(node)
   end
 
   defp rpc(node, module, fun, args) do
@@ -75,9 +79,5 @@ defmodule Swarm.Cluster do
     |> String.split("@")
     |> Enum.at(0)
     |> String.to_atom
-  end
-
-  defp stop_node(node) do
-    :ok = :slave.stop(node)
   end
 end

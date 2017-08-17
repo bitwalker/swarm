@@ -689,7 +689,6 @@ defmodule Swarm.Tracker do
   defp handle_topology_change({type, remote_node}, %TrackerState{} = state) do
     debug "topology change (#{type} for #{remote_node})"
     current_node = state.self
-    current_pid = self()
     new_clock = Registry.reduce(state.clock, fn
       entry(name: name, pid: pid, meta: %{mfa: {m,f,a}}) = obj, lclock when node(pid) == current_node ->
         case Strategy.key_to_node(state.strategy, name) do
@@ -1039,7 +1038,7 @@ defmodule Swarm.Tracker do
     GenStateMachine.cast(from, {:sync_ack, Node.self})
     :keep_state_and_data
   end
-  defp handle_cast({:retry_pending_trackings}, %{pending_trackings: []} = state) do
+  defp handle_cast({:retry_pending_trackings}, %{pending_trackings: []}) do
     :keep_state_and_data
   end
   defp handle_cast({:retry_pending_trackings}, %{pending_trackings: pending_trackings} = state) do
@@ -1054,6 +1053,9 @@ defmodule Swarm.Tracker do
   end
   defp handle_cast({:track_pending, name, m, f, a}, state) do
     do_track(%Tracking{name: name, m: m, f: f, a: a}, state)
+  end
+  defp handle_cast({:track_pending, name, m, f, a, from}, state) do
+    do_track(%Tracking{name: name, m: m, f: f, a: a, from: from}, state)
   end
   defp handle_cast(msg, _state) do
     warn "unrecognized cast: #{inspect msg}"
@@ -1089,9 +1091,9 @@ defmodule Swarm.Tracker do
         state = %{state | nodes: nodes -- [pid_node], strategy: strategy}
         case Strategy.key_to_node(strategy, name) do
           :undefined ->
-            debug "#{inspect name} (#{inspect pid}) has no node available to host, skipping"
+            debug "#{inspect name} (#{inspect pid}) has no node available to host, will retry when a node becomes available"
             {:ok, new_state} = remove_registration(obj, state)
-            {:keep_state, new_state}
+            track_pending(%Tracking{name: name, m: m, f: f, a: a}, new_state)
           ^current_node ->
             debug "restarting #{inspect name} (#{inspect pid}) on #{current_node}"
             {:ok, new_state} = remove_registration(obj, state)
@@ -1119,16 +1121,13 @@ defmodule Swarm.Tracker do
     end
   end
 
-  # attempt to start a named process on its destination node
-  defp do_track(%{name: name, m: m, f: f, a: a, from: from} = tracking, %{nodes: nodes, strategy: strategy} = state) do
+  # Attempt to start a named process on its destination node
+  defp do_track(%{name: name, m: m, f: f, a: a, from: from} = tracking, %{strategy: strategy} = state) do
     current_node = Node.self()
-
     case Strategy.key_to_node(strategy, name) do
       :undefined ->
         debug "no node available to start #{inspect name} process"
-        state = %TrackerState{state | pending_trackings: state.pending_trackings ++ [tracking]}
-        {:keep_state, state}
-
+        track_pending(tracking, state)
       ^current_node ->
         case Registry.get_by_name(name) do
           :undefined ->
@@ -1173,6 +1172,14 @@ defmodule Swarm.Tracker do
     end
   end
 
+  # Track pending registration to restart process when a node becomes available
+  defp track_pending(%Tracking{} = tracking, %TrackerState{pending_trackings: pending_trackings} = state) do
+    state = %TrackerState{state |
+      pending_trackings: pending_trackings ++ [tracking]
+    }
+    {:keep_state, state}
+  end
+
   # Starts a process on a remote node. Handles failures with a retry mechanism
   defp start_pid_remotely(remote_node, from, name, m, f, a, %TrackerState{} = state) do
     try do
@@ -1204,8 +1211,8 @@ defmodule Swarm.Tracker do
         new_state = %{state | nodes: state.nodes -- [remote_node], strategy: Strategy.remove_node(state.strategy, remote_node)}
         case Strategy.key_to_node(new_state.strategy, name) do
           :undefined ->
-            warn "failed to start #{inspect name} as no node available"
-            GenStateMachine.reply(from, {:error, :nodedown})
+            warn "failed to start #{inspect name} as no node available, retrying once a node becomes available"
+            GenStateMachine.cast(__MODULE__, {:track_pending, name, m, f, a, from})
           new_node ->
             start_pid_remotely(new_node, from, name, m, f, a, new_state)
         end

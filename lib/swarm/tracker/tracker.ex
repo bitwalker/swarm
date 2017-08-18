@@ -1196,6 +1196,10 @@ defmodule Swarm.Tracker do
             nil -> :ok
             _   -> GenStateMachine.reply(from, {:ok, pid})
           end
+        {:error, {:noproc, _}} = err ->
+          warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}, retrying operation after 1s.."
+          :timer.sleep 1_000
+          start_pid_remotely(remote_node, from, name, m, f, a, state)
         {:error, _reason} = err when from != nil ->
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}"
           GenStateMachine.reply(from, err)

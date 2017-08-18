@@ -1,13 +1,11 @@
 defmodule Swarm.Cluster do
-  def spawn do
+  def spawn(nodes \\ Application.get_env(:swarm, :nodes, [])) do
     # Turn node into a distributed node with the given long name
     :net_kernel.start([:"primary@127.0.0.1"])
 
     # Allow spawned nodes to fetch all code from this node
     :erl_boot_server.start([])
     allow_boot to_charlist("127.0.0.1")
-
-    nodes = Application.get_env(:swarm, :nodes, [])
 
     case Application.load(:swarm) do
       :ok -> :ok

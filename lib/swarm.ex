@@ -42,9 +42,7 @@ defmodule Swarm do
   """
   @spec register_name(term, atom(), atom(), [term], non_neg_integer() | :infinity) :: {:ok, pid} | {:error, term}
   def register_name(name, m, f, a, timeout \\ :infinity)
-  def register_name(name, m, f, a, timeout) do
-    Swarm.Registry.register(name, m, f, a, timeout)
-  end
+  def register_name(name, m, f, a, timeout), do: Swarm.Registry.register(name, m, f, a, timeout)
 
   @doc """
   Unregisters the given name from the registry.

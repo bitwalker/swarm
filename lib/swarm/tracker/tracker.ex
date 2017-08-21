@@ -725,11 +725,9 @@ defmodule Swarm.Tracker do
                   debug "#{inspect name} has requested to be restarted"
                   {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
                   send(pid, {:swarm, :die})
-                  case handle_call({:track, name, m, f, a}, nil, %{state | clock: lclock}) do
-                    :keep_state_and_data ->
-                      new_state.clock
-                    {:keep_state, new_state} ->
-                      new_state.clock
+                  case do_track(%Tracking{name: name, m: m, f: f, a: a}, %{state | clock: lclock}) do
+                    :keep_state_and_data ->     new_state.clock
+                    {:keep_state, new_state} -> new_state.clock
                   end
               end
             catch
@@ -756,11 +754,9 @@ defmodule Swarm.Tracker do
               ^current_node ->
                 debug "restarting #{inspect name} on #{current_node}"
                 {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
-                case handle_call({:track, name, m, f, a}, nil, new_state) do
-                  :keep_state_and_data ->
-                    new_state.clock
-                  {:keep_state, new_state} ->
-                    new_state.clock
+                case do_track(%Tracking{name: name, m: m, f: f, a: a}, new_state) do
+                  :keep_state_and_data ->     new_state.clock
+                  {:keep_state, new_state} -> new_state.clock
                 end
               _other_node ->
                 # other_node will tell us to unregister/register the restarted pid
@@ -1099,7 +1095,7 @@ defmodule Swarm.Tracker do
           ^current_node ->
             debug "restarting #{inspect name} (#{inspect pid}) on #{current_node}"
             {:ok, new_state} = remove_registration(obj, state)
-            handle_call({:track, name, m, f, a}, nil, new_state)
+            do_track(%Tracking{name: name, m: m, f: f, a: a}, new_state)
           other_node ->
             debug "#{inspect name} (#{inspect pid}) is owned by #{other_node}, skipping"
             {:ok, new_state} = remove_registration(obj, state)

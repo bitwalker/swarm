@@ -54,7 +54,7 @@ end
 ## Restrictions
 
 - auto-balancing of processes in the cluster require registrations be done via
-  `register_name/4`, which takes module/function/args params, and handles starting
+  `register_name/5`, which takes module/function/args params, and handles starting
   the process for you. The MFA must return `{:ok, pid}`.
   This is how Swarm handles process handoff between nodes, and automatic restarts when nodedown
   events occur and the cluster topology changes.
@@ -62,19 +62,62 @@ end
 
 ## Consistency Guarantees
 
-Like any distributed system, a choice must be made in terms of guarantees provided.
-Swarm favors availability over consistency, even though it is eventually consistent, as network partitions,
-when healed, will be resolved by asking any copies of a given name that live on nodes where they don't
-belong to shutdown.
+Like any distributed system, a choice must be made in terms of guarantees provided. You can choose between
+availability or consistency during a network partition by selecting the appropriate process distribution strategy.
 
-Network partitions result in all partitions running an instance of processes created with Swarm.
-Swarm was designed for use in an IoT platform, where process names are generally based on physical device ids,
-and as such, the consistency issue is less of a problem. If events get routed to two separate partitions,
-it's generally not an issue if those events are for the same device. However this is clearly not ideal
-in all situations. Swarm also aims to be fast, so registrations and lookups must be as low latency as possible,
-even when the number of processes in the registry grows very large. This is acheived without consensus by using
-a consistent hash of the name which deterministically defines which node a process belongs on, and all requests
-to start a process on that node will be serialized through that node to prevent conflicts.
+Swarm provides two strategies for you to use:
+
+- #### `Swarm.Distribution.Ring`
+
+  This strategy favors availability over consistency, even though it is eventually consistent, as
+  network partitions, when healed, will be resolved by asking any copies of a given name that live on
+  nodes where they don't belong to shutdown.
+
+  Network partitions result in all partitions running an instance of processes created with Swarm.
+  Swarm was designed for use in an IoT platform, where process names are generally based on physical
+  device ids, and as such, the consistency issue is less of a problem. If events get routed to two
+  separate partitions, it's generally not an issue if those events are for the same device. However
+  this is clearly not ideal in all situations. Swarm also aims to be fast, so registrations and
+  lookups must be as low latency as possible, even when the number of processes in the registry grows
+  very large. This is acheived without consensus by using a consistent hash of the name which
+  deterministically defines which node a process belongs on, and all requests to start a process on
+  that node will be serialized through that node to prevent conflicts.
+
+  This is the default strategy and requires no configuration.
+
+- #### `Swarm.Distribution.StaticQuorumRing`
+
+  A quorum is the minimum number of nodes that a distributed cluster has to obtain in order to be
+  allowed to perform an operation. This can be used to enforce consistent operation in a distributed
+  system.
+
+  You configure the quorum size by defining the minimum number of nodes that must be connected in the
+  cluster to allow process registration and distribution. If there are fewer nodes currently
+  available than the quorum size, any calls to `Swarm.register_name/5` will block until enough nodes
+  have started.
+
+  In a network partition, the partition containing at least the quorum size number of clusters will
+  continue operation. Processes running on the other side of the split will be stopped, and restarted
+  on the active side. This ensures that only one instance of a registered process will be running in
+  the cluster.
+
+  You must configure this strategy and its minimum quorum size using the `:static_quorum_size` setting:
+
+  ```elixir
+  config :swarm,
+    distribution_strategy: Swarm.Distribution.StaticQuorumRing,
+    static_quorum_size: 5
+  ```
+
+  The quorum size should be set to half the cluster size, plus one node. So a three node cluster
+  would be two, a five node cluster is three, and a nine node cluster is five. You *must* not add more
+  than 2 x quorum size - 1 nodes to the cluster as this would cause a network split to result in
+  both partitions continuing operation.
+
+  Processes are distributed amongst the cluster using the same consistent hash of their name as in
+  the ring strategy above.
+
+  This strategy is a good choice when you have a fixed number of nodes in the cluster.
 
 ## Clustering
 
@@ -107,13 +150,13 @@ not include those nodes in it's distribution algorithm, or communicate with thos
 ## Registration/Process Grouping
 
 Swarm is intended to be used by registering processes *before* they are created, and letting Swarm start
-them for you on the proper node in the cluster. This is done via `register_name/4`. You may also register
+them for you on the proper node in the cluster. This is done via `Swarm.register_name/5`. You may also register
 processes the normal way, i.e. `GenServer.start_link({:via, :swarm, name}, ...)`. Swarm will manage these
 registrations, and replicate them across the cluster, however these processes will not be moved in response
 to cluster topology changes.
 
 Swarm also offers process grouping, similar to the way `gproc` does properties. You "join" a process to a group
-after it's started, (beware of doing so in `init/1` outside of a Task, or it will deadlock), with `Swarm.join/2`. 
+after it's started, (beware of doing so in `init/1` outside of a Task, or it will deadlock), with `Swarm.join/2`.
 You can then publish messages (i.e. `cast`) with
 `Swarm.publish/2`, and/or call all processes in a group and collect results (i.e. `call`) with `Swarm.multi_call/2` or
 `Swarm.multi_call/3`. Leaving a group can be done with `Swarm.leave/2`, but will automatically be done when a process

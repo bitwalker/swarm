@@ -75,9 +75,11 @@ defmodule Swarm.Tracker do
   If the process's parent node goes down, it will be restarted on the new node which own's it's keyspace.
   If the cluster topology changes, and the owner of it's keyspace changes, it will be shifted to
   the new owner, after initiating the handoff process as described in the documentation.
+  If there is no node available to start the process, the `track` call will block until one becomes available
+  or the `timeout` is reached. Provide a timeout value of `:infinity` to block indefinitely.
   """
-  def track(name, m, f, a) when is_atom(m) and is_atom(f) and is_list(a),
-    do: GenStateMachine.call(__MODULE__, {:track, name, m, f, a}, :infinity)
+  def track(name, m, f, a, timeout) when is_atom(m) and is_atom(f) and is_list(a),
+    do: GenStateMachine.call(__MODULE__, {:track, name, m, f, a}, timeout)
 
   @doc """
   Stops tracking the given process (pid)
@@ -1162,7 +1164,6 @@ defmodule Swarm.Tracker do
             debug "found #{inspect name} already registered on #{node(pid)}"
             :keep_state_and_data
         end
-
       remote_node ->
         debug "starting #{inspect name} on remote node #{remote_node}"
         {:ok, _pid} = Task.start(fn ->

@@ -36,9 +36,15 @@ defmodule Swarm do
   This version also returns an ok tuple with the pid if it registers successfully,
   or an error tuple if registration fails. You cannot use this with processes which
   are already started, it must be started by `:swarm`.
+
+  You can optionally provide a `:timeout` value to limit the duration of blocking calls.
+  The default value is `:infinity` to block indefinitely.
   """
-  @spec register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
-  defdelegate register_name(name, m, f, a), to: Swarm.Registry, as: :register
+  @spec register_name(term, atom(), atom(), [term], non_neg_integer() | :infinity) :: {:ok, pid} | {:error, term}
+  def register_name(name, m, f, a, timeout \\ :infinity)
+  def register_name(name, m, f, a, timeout) do
+    Swarm.Registry.register(name, m, f, a, timeout)
+  end
 
   @doc """
   Unregisters the given name from the registry.

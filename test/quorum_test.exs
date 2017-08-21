@@ -63,13 +63,20 @@ defmodule Swarm.QuorumTests do
 
       assert :ok = unregister_name(@node1, {:test, 1})
     end
+
+    test "should timeout a blocking track call, if provided" do
+      case register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [], 0) do
+        {:error, {:EXIT, {:timeout, _}}} -> :ok
+        reply -> flunk("expected timeout, instead received: #{inspect reply}")
+      end
+    end
   end
 
   describe "with quorum cluster" do
     setup [:form_three_node_cluster]
 
     test "should immediately start registered process" do
-      assert {:ok, pid} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
+      assert {:ok, _pid} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
       assert :ok = unregister_name(@node1, {:test, 1})
     end
 
@@ -112,7 +119,21 @@ defmodule Swarm.QuorumTests do
         assert get_registry(node) == [{{:test, 1}, pid}]
       end)
 
+      pid = whereis_name(@node1, {:test, 1})
+      assert :rpc.call(@node1, Process, :alive?, [pid], :infinity)
+
       assert :ok = unregister_name(@node1, {:test, 1})
+    end
+
+    test "should unregister name" do
+      {:ok, _pid} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
+
+      assert :ok = unregister_name(@node1, {:test, 1})
+
+      Enum.each([@node1, @node2, @node3], fn node ->
+       assert whereis_name(node, {:test, 1}) == :undefined
+       assert get_registry(node) == []
+      end)
     end
   end
 
@@ -160,8 +181,12 @@ defmodule Swarm.QuorumTests do
     :rpc.call(node, Swarm, :registered, [], :infinity)
   end
 
-  defp register_name(node, name, m, f, a) do
-    :rpc.call(node, Swarm, :register_name, [name, m, f, a], :infinity)
+  defp register_name(node, name, m, f, a, timeout \\ :infinity)
+  defp register_name(node, name, m, f, a, timeout) do
+    case :rpc.call(node, Swarm, :register_name, [name, m, f, a, timeout], :infinity) do
+      {:badrpc, reason} -> {:error, reason}
+      reply -> reply
+    end
   end
 
   defp unregister_name(node, name) do

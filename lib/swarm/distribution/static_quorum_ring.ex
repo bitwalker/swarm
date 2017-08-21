@@ -1,9 +1,7 @@
 defmodule Swarm.Distribution.StaticQuorumRing do
   @moduledoc """
   A quorum is the minimum number of nodes that a distributed cluster has to obtain in order to be
-  allowed to perform an operation in a distributed system.
-
-  Used to enforce consistent operation in a distributed system.
+  allowed to perform an operation. This can be used to enforce consistent operation in a distributed system.
 
   ## Quorum size
 
@@ -16,13 +14,13 @@ defmodule Swarm.Distribution.StaticQuorumRing do
   registration and distribution.
 
   If there are fewer nodes currently available than the quorum size, any calls to
-  `Swarm.register_name/3` will block until enough nodes have started.
+  `Swarm.register_name/5` will block until enough nodes have started.
 
   As an example, in a 9 node cluster you would configure the `:static_quorum_size` as 5. If there
   is a network split of 4 and 5 nodes, processes on the side with 5 nodes will continue running but
   processes on the other 4 nodes will be stopped.
 
-  Be aware that in the running 5 node cluster, no more failures can be handled, because the
+  Be aware that in the running 5 node cluster, no more failures can be handled because the
   remaining cluster size would be less than 5. In the case of another failure in that 5 node
   cluster all running processes will be stopped.
   """

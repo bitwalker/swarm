@@ -9,6 +9,7 @@ defmodule Swarm.QuorumTests do
   @node4 :"node4@127.0.0.1"
   @node5 :"node5@127.0.0.1"
   @nodes [@node1, @node2, @node3, @node4, @node5]
+  @names [{:test, 1}, {:test, 2}, {:test, 3}, {:test, 4}, {:test, 5}]
 
   alias Swarm.Cluster
   alias Swarm.Distribution.{Ring,StaticQuorumRing}
@@ -46,7 +47,7 @@ defmodule Swarm.QuorumTests do
         register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
       end)
 
-      # ensure registration is blocked, and procoess not yet started/registered
+      # ensure registration is blocked, and process has not yet started/registered
       assert get_registry(@node1) == []
 
       # add third node to cluster, meeting min quorum requirements
@@ -96,14 +97,42 @@ defmodule Swarm.QuorumTests do
       end)
     end
 
-    test "should restart a killed process after topology change restores min quorum" do
-      {:ok, pid} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
+    test "should kill all processes after topology change results in too few nodes to host" do
+      refs = start_named_processes()
 
-      ref = Process.monitor(pid)
+      :timer.sleep 1_000
 
-      # stopping a node means not enough needs for a quorum, running processes must be stopped
+      # stopping one node means not enough nodes for a quorum, running processes must be stopped
+      Cluster.stop_node(@node3)
+
+      :timer.sleep 1_000
+
+      # ensure all processes have been stopped
+      Enum.each(refs, fn ref ->
+        assert_receive {:DOWN, ^ref, _, _, _}
+      end)
+
+      # ensure all nodes have an empty process registry
+      Enum.each(@names, fn name ->
+        assert whereis_name(@node1, name) == :undefined
+        assert whereis_name(@node2, name) == :undefined
+        assert get_registry(@node2) == []
+        assert get_registry(@node2) == []
+      end)
+    end
+
+    test "should restart all killed processes after topology change restores min quorum" do
+      refs = start_named_processes()
+
+      :timer.sleep 1_000
+
+      # stopping one node means not enough needs for a quorum, running processes must be stopped
       Cluster.stop_node(@node1)
-      assert_receive {:DOWN, ^ref, _, _, _}
+
+      # ensure all processes have been stopped
+      Enum.each(refs, fn ref ->
+        assert_receive {:DOWN, ^ref, _, _, _}
+      end)
 
       # restore third node to cluster, meeting min quorum requirements
       {:ok, _node} = Cluster.spawn_node(@node1)
@@ -111,18 +140,23 @@ defmodule Swarm.QuorumTests do
       # wait for node to start
       :timer.sleep 1_000
 
-      # ensure all nodes have name registered to started process
+      # ensure all nodes have names registered to started processes
       Enum.each([@node1, @node2, @node3], fn node ->
-        pid = whereis_name(node, {:test, 1})
+        pids = Enum.map(@names, &whereis_name(node, &1))
+        registry = get_registry(node) |> Enum.sort_by(fn {{:test, n}, _} -> n end)
 
-        refute pid == :undefined
-        assert get_registry(node) == [{{:test, 1}, pid}]
+        refute Enum.member?(pids, :undefined)
+        assert registry == Enum.zip(@names, pids)
       end)
 
-      pid = whereis_name(@node1, {:test, 1})
-      assert :rpc.call(@node1, Process, :alive?, [pid], :infinity)
+      # ensure processes are alive
+      Enum.each(@names, fn name ->
+        pid = whereis_name(@node1, name)
+        node = node(pid)
 
-      assert :ok = unregister_name(@node1, {:test, 1})
+        assert :rpc.call(node, Process, :alive?, [pid], :infinity)
+        assert :ok = unregister_name(node, name)
+      end)
     end
 
     test "should unregister name" do
@@ -141,25 +175,20 @@ defmodule Swarm.QuorumTests do
     setup [:form_five_node_cluster]
 
     test "should redistribute processes from smaller to larger partition" do
-      names = [{:test, 1}, {:test, 2}, {:test, 3}, {:test, 4}, {:test, 5}]
-
       # start worker for each name
-      Enum.each(names, fn name ->
-        with {:ok, pid} <- register_name(@node1, name, MyApp.WorkerSup, :register, []) do
-          pid
-        end
+      Enum.each(@names, fn name ->
+        {:ok, _pid} = register_name(@node1, name, MyApp.WorkerSup, :register, [])
       end)
 
       :timer.sleep 1_000
 
       # simulate net split (1, 2, 3) and (4, 5)
-      Node.disconnect(@node4)
-      Node.disconnect(@node5)
+      simulate_disconnect([@node1, @node2, @node3], [@node4, @node5])
 
       :timer.sleep 1_000
 
       # ensure processes are redistributed onto nodes 1, 2, or 3 (quorum)
-      names
+      @names
       |> Enum.map(&whereis_name(@node1, &1))
       |> Enum.each(fn pid ->
         refute pid == :undefined
@@ -171,8 +200,18 @@ defmodule Swarm.QuorumTests do
         end
       end)
 
-      Enum.each(names, fn name ->
+      Enum.each(@names, fn name ->
         assert :ok = unregister_name(@node1, name)
+      end)
+    end
+
+    # simulate a disconnect between the two node partitions
+    defp simulate_disconnect(lpartition, rpartition) do
+      Enum.each(lpartition, fn lnode ->
+        Enum.each(rpartition, fn rnode ->
+          send({Swarm.Tracker, lnode}, {:nodedown, rnode, nil})
+          send({Swarm.Tracker, rnode}, {:nodedown, lnode, nil})
+        end)
       end)
     end
   end
@@ -220,6 +259,15 @@ defmodule Swarm.QuorumTests do
          {:ok, _node5} <- Cluster.spawn_node(@node5) do
       :ok
     end
+  end
+
+  # start worker for each name
+  def start_named_processes do
+    Enum.map(@names, fn name ->
+      with {:ok, pid} <- register_name(@node1, name, MyApp.WorkerSup, :register, []) do
+        Process.monitor(pid)
+      end
+    end)
   end
 
   defp restart_cluster_using_strategy(strategy, nodes) do

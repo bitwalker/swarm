@@ -746,7 +746,7 @@ defmodule Swarm.Tracker do
             case Strategy.key_to_node(state.strategy, name) do
               :undefined ->
                 # No node available to restart process on, so remove registrartion
-                debug "no node available to restart #{inspect name} on"
+                debug "no node available to restart #{inspect name}"
                 {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
                 # Track pending registration to restart process when a node becomes available
                 GenStateMachine.cast(__MODULE__, {:track_pending, name, m, f, a})
@@ -1072,7 +1072,7 @@ defmodule Swarm.Tracker do
   end
 
   # Called when a pid dies, and the monitor is triggered
-  defp handle_monitor(ref, pid, :noconnection, %TrackerState{nodes: nodes, strategy: strategy} = state) do
+  defp handle_monitor(ref, pid, :noconnection, %TrackerState{} = state) do
     # lost connection to the node this pid is running on, check if we should restart it
     case Registry.get_by_ref(ref) do
       :undefined ->
@@ -1080,27 +1080,9 @@ defmodule Swarm.Tracker do
         :keep_state_and_data
       entry(name: name, pid: ^pid, meta: %{mfa: {m,f,a}}) = obj ->
         debug "lost connection to #{inspect name} (#{inspect pid}) on #{node(pid)}, node is down"
-        current_node = Node.self
-        # this event may have occurred before we get a nodedown event, so
-        # for the purposes of this handler, preemptively remove the node from the
-        # distribution strategy when calculating the new node
-        pid_node = node(pid)
-        strategy  = Strategy.remove_node(strategy, pid_node)
-        state = %{state | nodes: nodes -- [pid_node], strategy: strategy}
-        case Strategy.key_to_node(strategy, name) do
-          :undefined ->
-            debug "#{inspect name} (#{inspect pid}) has no node available to host, will retry when a node becomes available"
-            {:ok, new_state} = remove_registration(obj, state)
-            track_pending(%Tracking{name: name, m: m, f: f, a: a}, new_state)
-          ^current_node ->
-            debug "restarting #{inspect name} (#{inspect pid}) on #{current_node}"
-            {:ok, new_state} = remove_registration(obj, state)
-            do_track(%Tracking{name: name, m: m, f: f, a: a}, new_state)
-          other_node ->
-            debug "#{inspect name} (#{inspect pid}) is owned by #{other_node}, skipping"
-            {:ok, new_state} = remove_registration(obj, state)
-            {:keep_state, new_state}
-        end
+        nodedown = node(pid)
+        # Redistribute processes as necessary
+        handle_topology_change({:nodedown, nodedown}, state)
       entry(pid: ^pid) = obj ->
         debug "lost connection to #{inspect pid}, but not restartable, removing registration.."
         {:ok, new_state} = remove_registration(obj, state)
@@ -1422,5 +1404,4 @@ defmodule Swarm.Tracker do
         {:ok, state}
     end
   end
-
 end

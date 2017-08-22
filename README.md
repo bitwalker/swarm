@@ -80,7 +80,7 @@ to start a process on that node will be serialized through that node to prevent 
 
 Swarm pre-2.0 included auto-clustering functionality, but that has been split out into it's own package,
 [libcluster](https://github.com/bitwalker/libcluster). Swarm works out of the box with Erlang's distribution
-tools (i.e. `Node.connect/1`, `:net_adm.connect_node/1`, etc.), but if you need the auto-clustering that Swarm
+tools (i.e. `Node.connect/1`, `:net_kernel.connect_node/1`, etc.), but if you need the auto-clustering that Swarm
 previously provided, you will need to add `:libcluster` to your deps, and make sure it's in your applications
 list *before* `:swarm`. Some of the configuration has changed slightly in `:libcluster`, so be sure to review
 the docs.
@@ -97,7 +97,7 @@ to setup remote shells (the first) and hot upgrade scripting (the second), the p
 
 ```elixir
 config :swarm,
-  node_whitelist: [~r/^myapp-[\d]@.*$]
+  node_whitelist: [~r/^myapp-[\d]@.*$/]
 ```
 
 The above will only allow nodes named something like `myapp-1@somehost` to be included in Swarm's clustering. **NOTE**:

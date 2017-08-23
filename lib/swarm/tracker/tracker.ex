@@ -18,6 +18,7 @@ defmodule Swarm.Tracker do
   alias Swarm.Distribution.Strategy
 
   defmodule Tracking do
+    @moduledoc false
     @type t :: %__MODULE__{
       name: term(),
       m: atom(),
@@ -25,14 +26,11 @@ defmodule Swarm.Tracker do
       a: list(),
       from: {pid, tag :: term},
     }
-    defstruct name: nil,
-              m: nil,
-              f: nil,
-              a: nil,
-              from: nil
+    defstruct [:name, :m, :f, :a, :from]
   end
 
   defmodule TrackerState do
+    @moduledoc false
     @type t :: %__MODULE__{
       clock: nil | Swarm.IntervalTreeClock.t,
       strategy: Strategy.t,
@@ -725,7 +723,7 @@ defmodule Swarm.Tracker do
                   debug "#{inspect name} has requested to be restarted"
                   {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
                   send(pid, {:swarm, :die})
-                  case do_track(%Tracking{name: name, m: m, f: f, a: a}, %{state | clock: lclock}) do
+                  case do_track(%Tracking{name: name, m: m, f: f, a: a}, new_state) do
                     :keep_state_and_data ->     new_state.clock
                     {:keep_state, new_state} -> new_state.clock
                   end
@@ -745,8 +743,8 @@ defmodule Swarm.Tracker do
             # pid is dead, we're going to restart it
             case Strategy.key_to_node(state.strategy, name) do
               :undefined ->
-                # No node available to restart process on, so remove registrartion
-                debug "no node available to restart #{inspect name}"
+                # No node available to restart process on, so remove registration and add to pending trackings
+                warn "no node available to restart #{inspect name}"
                 {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
                 # Track pending registration to restart process when a node becomes available
                 GenStateMachine.cast(__MODULE__, {:track_pending, name, m, f, a})
@@ -1041,12 +1039,14 @@ defmodule Swarm.Tracker do
   end
   defp handle_cast({:retry_pending_trackings}, %{pending_trackings: pending_trackings} = state) do
     debug "retry pending trackings: #{inspect state.pending_trackings}"
-    state = Enum.reduce(pending_trackings, %TrackerState{state | pending_trackings: []}, fn (tracking, state) ->
-      case do_track(tracking, state) do
-        {:keep_state, new_state} -> new_state
-        :keep_state_and_data     -> state
-      end
-    end)
+    state =
+      pending_trackings
+      |> Enum.reduce(%TrackerState{state | pending_trackings: []}, fn tracking, state ->
+        case do_track(tracking, state) do
+          {:keep_state, new_state} -> new_state
+          :keep_state_and_data     -> state
+        end
+      end)
     {:keep_state, state}
   end
   defp handle_cast({:track_pending, name, m, f, a}, state) do
@@ -1078,7 +1078,7 @@ defmodule Swarm.Tracker do
       :undefined ->
         debug "lost connection to #{inspect pid}, but no registration could be found, ignoring.."
         :keep_state_and_data
-      entry(name: name, pid: ^pid, meta: %{mfa: {m,f,a}}) = obj ->
+      entry(name: name, pid: ^pid, meta: %{mfa: {_m,_f,_a}}) ->
         debug "lost connection to #{inspect name} (#{inspect pid}) on #{node(pid)}, node is down"
         nodedown = node(pid)
         # Redistribute processes as necessary

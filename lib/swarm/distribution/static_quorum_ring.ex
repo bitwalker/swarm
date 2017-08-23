@@ -5,9 +5,10 @@ defmodule Swarm.Distribution.StaticQuorumRing do
 
   ## Quorum size
 
-  You must configure the quorum size using the `:static_quorum_size` setting:
+  You must configure the distribution strategy and its quorum size using the `:static_quorum_size` setting:
 
       config :swarm,
+        distribution_strategy: Swarm.Distribution.StaticQuorumRing,
         static_quorum_size: 5
 
   It defines the minimum number of nodes that must be connected in the cluster to allow process
@@ -16,9 +17,24 @@ defmodule Swarm.Distribution.StaticQuorumRing do
   If there are fewer nodes currently available than the quorum size, any calls to
   `Swarm.register_name/5` will block until enough nodes have started.
 
-  As an example, in a 9 node cluster you would configure the `:static_quorum_size` as 5. If there
-  is a network split of 4 and 5 nodes, processes on the side with 5 nodes will continue running but
-  processes on the other 4 nodes will be stopped.
+  You can configure the `:kernel` application to wait for cluster formation before starting your
+  application during node start up. The `sync_nodes_optional` configuration specifies which nodes
+  to attempt to connect to within the `sync_nodes_timeout` window, defined in milliseconds, before
+  continuing with startup. There is also a `sync_nodes_mandatory` setting which can be used to
+  enforce all nodes are connected within the timeout window or else the node terminates.
+
+      config :kernel,
+        sync_nodes_optional: [:"node1@192.168.1.1", :"node2@192.168.1.2"],
+        sync_nodes_timeout: 60_000
+
+  The `sync_nodes_timeout` can be configured as `:infinity` to wait indefinitely for all nodes to
+  connect. All involved nodes must have the same value for `sync_nodes_timeout`.
+
+  ### Example
+
+  In a 9 node cluster you would configure the `:static_quorum_size` as 5. If there is a network split
+  of 4 and 5 nodes, processes on the side with 5 nodes will continue running but processes on the
+  other 4 nodes will be stopped.
 
   Be aware that in the running 5 node cluster, no more failures can be handled because the
   remaining cluster size would be less than 5. In the case of another failure in that 5 node

@@ -40,6 +40,7 @@ defmodule Swarm do
   You can optionally provide a `:timeout` value to limit the duration of blocking calls.
   The default value is `:infinity` to block indefinitely.
   """
+  @spec register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
   @spec register_name(term, atom(), atom(), [term], non_neg_integer() | :infinity) :: {:ok, pid} | {:error, term}
   def register_name(name, m, f, a, timeout \\ :infinity)
   def register_name(name, m, f, a, timeout), do: Swarm.Registry.register(name, m, f, a, timeout)

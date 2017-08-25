@@ -9,6 +9,7 @@ defmodule Swarm.Tracker do
   use GenStateMachine, callback_mode: :state_functions
 
   @sync_nodes_timeout 5_000
+  @retry_delay 1_000
   @default_anti_entropy_interval 5 * 60_000
 
   import Swarm.Entry
@@ -1176,8 +1177,8 @@ defmodule Swarm.Tracker do
             _   -> GenStateMachine.reply(from, {:ok, pid})
           end
         {:error, {:noproc, _}} = err ->
-          warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}, retrying operation after 1s.."
-          :timer.sleep 1_000
+          warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}, retrying operation after #{@retry_delay}ms.."
+          :timer.sleep @retry_delay
           start_pid_remotely(remote_node, from, name, m, f, a, state)
         {:error, _reason} = err when from != nil ->
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}"
@@ -1383,6 +1384,10 @@ defmodule Swarm.Tracker do
             info "nodeup #{node}"
             new_state = %{state | nodes: [node|nodes], strategy: Strategy.add_node(strategy, node)}
             {:ok, new_state, {:topology_change, {:nodeup, node}}}
+          {:error, {:swarm, _}} = error ->
+            warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect error}, will retry in #{@retry_delay}ms.."
+            :timer.sleep @retry_delay
+            nodeup(state, node)
           other ->
             warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect other}"
             {:ok, state}

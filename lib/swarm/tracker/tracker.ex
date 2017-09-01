@@ -121,8 +121,8 @@ defmodule Swarm.Tracker do
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
 
     strategy = Node.self
-           |> Strategy.create()
-           |> Strategy.add_nodes(nodelist)
+          |> Strategy.create()
+          |> Strategy.add_nodes(nodelist)
 
     if Application.get_env(:swarm, :debug, false) do
       _ = Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)

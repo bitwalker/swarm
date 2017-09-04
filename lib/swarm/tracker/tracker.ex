@@ -9,7 +9,8 @@ defmodule Swarm.Tracker do
   use GenStateMachine, callback_mode: :state_functions
 
   @sync_nodes_timeout 5_000
-  @retry_delay 1_000
+  @retry_interval 1_000
+  @retry_max_attempts 10
   @default_anti_entropy_interval 5 * 60_000
 
   import Swarm.Entry
@@ -553,20 +554,13 @@ defmodule Swarm.Tracker do
     :keep_state_and_data
   end
   def tracking(:info, {:nodeup, node, _}, state) do
-    case nodeup(state, node) do
-      {:ok, new_state} ->
-        {:keep_state, new_state}
-      {:ok, new_state, {:topology_change, change_info}} ->
-        handle_topology_change(change_info, new_state)
-    end
+    nodeup(state, node) |> handle_node_status()
   end
   def tracking(:info, {:nodedown, node, _}, state) do
-    case nodedown(state, node) do
-      {:ok, new_state} ->
-        {:keep_state, new_state}
-      {:ok, new_state, {:topology_change, change_info}} ->
-        handle_topology_change(change_info, new_state)
-    end
+    nodedown(state, node) |> handle_node_status()
+  end
+  def tracking(:info, {:ensure_swarm_started_on_remote_node, node, attempts}, state) do
+    ensure_swarm_started_on_remote_node(state, node, attempts) |> handle_node_status()
   end
   def tracking(:info, :anti_entropy, state) do
     anti_entropy(state)
@@ -643,6 +637,11 @@ defmodule Swarm.Tracker do
 
   def code_change(_oldvsn, state, data, _extra) do
     {:ok, state, data}
+  end
+
+  defp handle_node_status({:ok, new_state}), do: {:keep_state, new_state}
+  defp handle_node_status({:ok, new_state, {:topology_change, change_info}}) do
+    handle_topology_change(change_info, new_state)
   end
 
   # This is the callback for when a process is being handed off from a remote node to this node.
@@ -1161,7 +1160,8 @@ defmodule Swarm.Tracker do
   end
 
   # Starts a process on a remote node. Handles failures with a retry mechanism
-  defp start_pid_remotely(remote_node, from, name, m, f, a, %TrackerState{} = state) do
+  defp start_pid_remotely(remote_node, from, name, m, f, a, state, attempts \\ 0)
+  defp start_pid_remotely(remote_node, from, name, m, f, a, %TrackerState{} = state, attempts) when attempts <= @retry_max_attempts do
     try do
       case GenStateMachine.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity) do
         {:ok, pid} ->
@@ -1177,9 +1177,9 @@ defmodule Swarm.Tracker do
             _   -> GenStateMachine.reply(from, {:ok, pid})
           end
         {:error, {:noproc, _}} = err ->
-          warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}, retrying operation after #{@retry_delay}ms.."
-          :timer.sleep @retry_delay
-          start_pid_remotely(remote_node, from, name, m, f, a, state)
+          warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}, retrying operation after #{@retry_interval}ms.."
+          :timer.sleep @retry_interval
+          start_pid_remotely(remote_node, from, name, m, f, a, state, attempts + 1)
         {:error, _reason} = err when from != nil ->
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}"
           GenStateMachine.reply(from, err)
@@ -1208,6 +1208,10 @@ defmodule Swarm.Tracker do
         error Exception.format(kind, err, System.stacktrace)
         warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"
     end
+  end
+  defp start_pid_remotely(remote_node, from, name, _m, _f, _a, _state, attempts) do
+    warn "#{inspect name} could not be started on #{remote_node}, failed to start after #{attempts} attempt(s)"
+    GenStateMachine.reply(from, {:error, :too_many_attempts})
   end
 
   ## Internal helpers
@@ -1379,20 +1383,29 @@ defmodule Swarm.Tracker do
       ignore_node?(node) ->
         {:ok, state}
       :else ->
-        case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
-          {:ok, _} ->
-            info "nodeup #{node}"
-            new_state = %{state | nodes: [node|nodes], strategy: Strategy.add_node(strategy, node)}
-            {:ok, new_state, {:topology_change, {:nodeup, node}}}
-          {:error, {:swarm, _}} = error ->
-            warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect error}, will retry in #{@retry_delay}ms.."
-            :timer.sleep @retry_delay
-            nodeup(state, node)
-          other ->
-            warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect other}"
-            {:ok, state}
-        end
+        ensure_swarm_started_on_remote_node(state, node)
     end
+  end
+
+  defp ensure_swarm_started_on_remote_node(state, node, attempts \\ 0)
+  defp ensure_swarm_started_on_remote_node(%TrackerState{nodes: nodes, strategy: strategy} = state, node, attempts) when attempts <= @retry_max_attempts do
+    case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
+      {:ok, _} ->
+        info "nodeup #{node}"
+        new_state = %{state | nodes: [node|nodes], strategy: Strategy.add_node(strategy, node)}
+        {:ok, new_state, {:topology_change, {:nodeup, node}}}
+      {:error, {:swarm, _}} = error ->
+        warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect error}, will retry in #{@retry_interval}ms.."
+        Process.send_after(self(), {:ensure_swarm_started_on_remote_node, node, attempts + 1}, @retry_interval)
+        {:ok, state}
+      other ->
+        warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect other}"
+        {:ok, state}
+    end
+  end
+  defp ensure_swarm_started_on_remote_node(%TrackerState{} = state, node, attempts) do
+    warn "nodeup for #{node} was ignored because swarm failed to start after #{attempts} attempt(s)"
+    {:ok, state}
   end
 
   # A remote node went down, we need to update the distribution strategy and handle restarting/shifting processes

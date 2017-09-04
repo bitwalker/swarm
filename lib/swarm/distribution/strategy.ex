@@ -34,7 +34,7 @@ defmodule Swarm.Distribution.Strategy do
   @callback add_node(strategy, node, weight) :: strategy | {:error, reason}
   @callback add_nodes(strategy, nodelist) :: strategy | {:error, reason}
   @callback remove_node(strategy, node) :: strategy | {:error, reason}
-  @callback key_to_node(strategy, key) :: node()
+  @callback key_to_node(strategy, key) :: node() | :undefined
 
   def create(), do: strategy_module().create()
   def create(node), do: strategy_module().add_node(create(), node)

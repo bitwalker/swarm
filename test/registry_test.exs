@@ -36,7 +36,7 @@ defmodule Swarm.RegistryTests do
     assert entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref1)
     assert entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref2)
 
-    assert [entry(pid: ^pid1), entry(pid: ^pid2)] = Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
+    assert [entry(pid: ^pid2), entry(pid: ^pid1)] = Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
 
     assert [entry(pid: ^pid1)] = :ets.lookup(:swarm_registry, {:test, 1})
   end
@@ -44,6 +44,7 @@ defmodule Swarm.RegistryTests do
   test "join/2 (joining a group does not create race conditions)" do
     # https://github.com/bitwalker/swarm/issues/14
     {:ok, pid} = Agent.start_link(fn -> "testing" end)
+    Swarm.register_name(:agent, pid)
     Swarm.join(:agents, pid)
     assert [my_agent] = Swarm.members(:agents)
     assert "testing" == Agent.get(my_agent, fn s -> s end)

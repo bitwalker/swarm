@@ -9,7 +9,7 @@ defmodule Swarm.Registry do
   ## Public API
 
   defdelegate register(name, pid), to: Tracker, as: :track
-  defdelegate register(name, module, fun, args), to: Tracker, as: :track
+  defdelegate register(name, module, fun, args, timeout), to: Tracker, as: :track
 
   @spec unregister(term) :: :ok
   def unregister(name) do

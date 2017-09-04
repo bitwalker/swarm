@@ -31,7 +31,7 @@ defmodule Swarm.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :crypto, :libring, :gen_state_machine],
+    [extra_applications: [:logger, :crypto],
      mod: {Swarm, []}]
   end
 

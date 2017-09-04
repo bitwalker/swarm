@@ -7,8 +7,9 @@ defmodule Swarm.IntegrationTest do
   @worker_count 10
 
   test "correct redistribution of processes" do
+    group_name = :group1
     for n <- 1..@worker_count do
-      {_, {:ok, _}} = spawn_worker(@node1, {:worker, n})
+      {_, {:ok, _}} = spawn_worker(@node1, {:worker, n}, group_name)
     end
 
     node1_registry = get_registry(@node1)
@@ -18,8 +19,14 @@ defmodule Swarm.IntegrationTest do
     assert length(node1_registry) == @worker_count
     assert length(node2_registry) == @worker_count
 
+    assert length(get_group_members(@node1, group_name)) == @worker_count
+    assert length(get_group_members(@node2, group_name)) == @worker_count
+
     assert length(workers_for(@node1)) < @worker_count
     assert length(workers_for(@node2)) < @worker_count
+
+    assert length(members_for(@node1, group_name)) < @worker_count
+    assert length(members_for(@node2, group_name)) < @worker_count
 
     # netsplit
     disconnect(@node1, from: @node2)
@@ -31,6 +38,9 @@ defmodule Swarm.IntegrationTest do
     assert length(workers_for(@node1)) == @worker_count
     assert length(workers_for(@node2)) == @worker_count
 
+    assert length(get_group_members(@node1, group_name)) == @worker_count
+    assert length(get_group_members(@node2, group_name)) == @worker_count
+
     # restore the cluster
     connect(@node1, to: @node2)
 
@@ -40,6 +50,12 @@ defmodule Swarm.IntegrationTest do
     # make sure processes are back in the correct place
     assert length(workers_for(@node1)) < @worker_count
     assert length(workers_for(@node2)) < @worker_count
+
+    assert length(get_group_members(@node1, group_name)) == @worker_count
+    assert length(get_group_members(@node2, group_name)) == @worker_count
+
+    assert length(members_for(@node1, group_name)) < @worker_count
+    assert length(members_for(@node2, group_name)) < @worker_count
   end
 
   defp disconnect(node, opts) do
@@ -61,4 +77,15 @@ defmodule Swarm.IntegrationTest do
     |> get_registry()
     |> Enum.filter(fn {_, pid} -> node(pid) == node end)
   end
+
+  defp get_group_members(node, group_name) do
+    :rpc.call(node, Swarm, :members, [group_name])
+  end
+
+  defp members_for(node, group_name) do
+    node
+    |> get_group_members(group_name)
+    |> Enum.filter(fn(pid) -> node(pid) == node end)
+  end
+
 end

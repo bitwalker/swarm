@@ -22,9 +22,13 @@ defmodule Swarm.NodeCase do
     end)
   end
 
-  def spawn_worker(node, name) do
+  def spawn_worker(node, name, group_name \\ nil) do
     call_node(node, fn ->
-      Swarm.register_name(name, MyApp.Worker, :start_link, [])
+      result = Swarm.register_name(name, MyApp.Worker, :start_link, [])
+      case result do
+        {:ok, pid} when group_name != nil -> Swarm.join(group_name, pid)
+      end
+      result
     end)
   end
 

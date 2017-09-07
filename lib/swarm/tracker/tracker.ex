@@ -139,9 +139,10 @@ defmodule Swarm.Tracker do
     # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
 
-    strategy = Node.self
-           |> Strategy.create()
-           |> Strategy.add_nodes(nodelist)
+    strategy = 
+      Node.self
+      |> Strategy.create()
+      |> Strategy.add_nodes(nodelist)
 
     if Application.get_env(:swarm, :debug, false) do
       _ = Task.start(fn -> :sys.trace(Swarm.Tracker, true) end)
@@ -554,13 +555,19 @@ defmodule Swarm.Tracker do
     :keep_state_and_data
   end
   def tracking(:info, {:nodeup, node, _}, state) do
-    nodeup(state, node) |> handle_node_status()
+    state
+    |> nodeup(node) 
+    |> handle_node_status()
   end
   def tracking(:info, {:nodedown, node, _}, state) do
-    nodedown(state, node) |> handle_node_status()
+    state
+    |> nodedown(node) 
+    |> handle_node_status()
   end
   def tracking(:info, {:ensure_swarm_started_on_remote_node, node, attempts}, state) do
-    ensure_swarm_started_on_remote_node(state, node, attempts) |> handle_node_status()
+    state
+    |> ensure_swarm_started_on_remote_node(node, attempts) 
+    |> handle_node_status()
   end
   def tracking(:info, :anti_entropy, state) do
     anti_entropy(state)
@@ -1373,9 +1380,10 @@ defmodule Swarm.Tracker do
   defp nodeup(%TrackerState{nodes: nodes, strategy: strategy} = state, node) do
     cond do
       node == Node.self ->
-        new_strategy = strategy
-        |> Strategy.remove_node(state.self)
-        |> Strategy.add_node(node)
+        new_strategy = 
+          strategy
+          |> Strategy.remove_node(state.self)
+          |> Strategy.add_node(node)
         info "node name changed from #{state.self} to #{node}"
         {:ok, %{state | self: node, strategy: new_strategy}}
       Enum.member?(nodes, node) ->

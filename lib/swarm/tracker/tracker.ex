@@ -1215,7 +1215,7 @@ defmodule Swarm.Tracker do
         warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"
     end
   end
-  defp start_pid_remotely(remote_node, from, name, _m, _f, _a, _state, attempts) do
+  defp start_pid_remotely(remote_node, from, name, _meta, _state, attempts) do
     warn "#{inspect name} could not be started on #{remote_node}, failed to start after #{attempts} attempt(s)"
     GenStateMachine.reply(from, {:error, :too_many_attempts})
   end

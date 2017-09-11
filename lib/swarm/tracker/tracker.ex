@@ -73,7 +73,7 @@ defmodule Swarm.Tracker do
   If the process's parent node goes down, it will be restarted on the new node which own's it's keyspace.
   If the cluster topology changes, and the owner of it's keyspace changes, it will be shifted to
   the new owner, after initiating the handoff process as described in the documentation.
-  If there is no node available to start the process, the track call will return an error tagged tuple `{error, :no_node_available}`.
+  A track call will return an error tagged tuple, `{:error, :no_node_available}`, if there is no node available to start the process.
   Provide a timeout value to limit the track call duration. A value of `:infinity` can be used to block indefinitely.
   """
   def track(name, m, f, a, timeout) when is_atom(m) and is_atom(f) and is_list(a),

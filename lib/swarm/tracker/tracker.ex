@@ -1085,7 +1085,7 @@ defmodule Swarm.Tracker do
     case Strategy.key_to_node(strategy, name) do
       :undefined ->
         warn "no node available to start #{inspect name} process"
-        GenStateMachine.reply(from, {:error, :no_node_available})
+        reply(from, {:error, :no_node_available})
         :keep_state_and_data
       ^current_node ->
         case Registry.get_by_name(name) do
@@ -1096,29 +1096,20 @@ defmodule Swarm.Tracker do
                 {:ok, pid} ->
                   debug "started #{inspect name} on #{current_node}"
                   add_registration({name, pid, %{mfa: {m,f,a}}}, from, state)
-                err when from != nil ->
-                  warn "failed to start #{inspect name} on #{current_node}: #{inspect err}"
-                  GenStateMachine.reply(from, {:error, {:invalid_return, err}})
-                  :keep_state_and_data
                 err ->
                   warn "failed to start #{inspect name} on #{current_node}: #{inspect err}"
+                  reply(from, {:error, {:invalid_return, err}})
                   :keep_state_and_data
               end
             catch
-              kind, reason when from != nil ->
-                warn Exception.format(kind, reason, System.stacktrace)
-                GenStateMachine.reply(from, {:error, reason})
-                :keep_state_and_data
               kind, reason ->
                 warn Exception.format(kind, reason, System.stacktrace)
+                reply(from, {:error, reason})
                 :keep_state_and_data
             end
-          entry(pid: pid) when from != nil ->
-            debug "found #{inspect name} already registered on #{node(pid)}"
-            GenStateMachine.reply(from, {:error, {:already_registered, pid}})
-            :keep_state_and_data
           entry(pid: pid) ->
             debug "found #{inspect name} already registered on #{node(pid)}"
+            reply(from, {:error, {:already_registered, pid}})
             :keep_state_and_data
         end
       remote_node ->
@@ -1137,10 +1128,7 @@ defmodule Swarm.Tracker do
       case GenStateMachine.call({__MODULE__, remote_node}, {:track, name, m, f, a}, :infinity) do
         {:ok, pid} ->
           debug "remotely started #{inspect name} (#{inspect pid}) on #{remote_node}"
-          case from do
-            nil -> :ok
-            _   -> GenStateMachine.reply(from, {:ok, pid})
-          end
+          reply(from, {:ok, pid})
         {:error, {:already_registered, pid}} ->
           debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}, registering locally"
           # register named process that is unknown locally
@@ -1150,11 +1138,9 @@ defmodule Swarm.Tracker do
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}, retrying operation after #{@retry_interval}ms.."
           :timer.sleep @retry_interval
           start_pid_remotely(remote_node, from, name, m, f, a, state, attempts + 1)
-        {:error, _reason} = err when from != nil ->
-          warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}"
-          GenStateMachine.reply(from, err)
         {:error, _reason} = err ->
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}"
+          reply(from, err)
       end
     catch
       _, {:noproc, _} ->
@@ -1166,25 +1152,26 @@ defmodule Swarm.Tracker do
         case Strategy.key_to_node(new_state.strategy, name) do
           :undefined ->
             warn "failed to start #{inspect name} as no node available"
-            GenStateMachine.reply(from, {:error, :no_node_available})
+            reply(from, {:error, :no_node_available})
           new_node ->
             start_pid_remotely(new_node, from, name, m, f, a, new_state)
         end
-      kind, err when from != nil ->
-        error Exception.format(kind, err, System.stacktrace)
-        warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"
-        GenStateMachine.reply(from, {:error, err})
       kind, err ->
         error Exception.format(kind, err, System.stacktrace)
         warn "failed to start #{inspect name} on #{remote_node}: #{inspect err}"
+        reply(from, {:error, err})
     end
   end
   defp start_pid_remotely(remote_node, from, name, _m, _f, _a, _state, attempts) do
     warn "#{inspect name} could not be started on #{remote_node}, failed to start after #{attempts} attempt(s)"
-    GenStateMachine.reply(from, {:error, :too_many_attempts})
+    reply(from, {:error, :too_many_attempts})
   end
 
   ## Internal helpers
+
+  # Send a reply message unless the recipient client is `nil`. Function always returns `:ok`
+  defp reply(nil, _message), do: :ok
+  defp reply(from, message), do: GenStateMachine.reply(from, message)
 
   defp broadcast_event([], _clock, _event),  do: :ok
   defp broadcast_event(nodes, clock, event) do
@@ -1199,13 +1186,11 @@ defmodule Swarm.Tracker do
   # Add a registration and reply to the caller with the result, then return the state transition
   defp add_registration({_name, _pid, _meta} = reg, from, state) do
     case register(reg, state) do
-      {:ok, reply, new_state} when from != nil ->
-        GenStateMachine.reply(from, {:ok, reply})
+      {:ok, reply, new_state} ->
+        reply(from, {:ok, reply})
         {:keep_state, new_state}
-      {:error, reply, new_state} when from != nil ->
-        GenStateMachine.reply(from, {:error, reply})
-        {:keep_state, new_state}
-      {_type, _reply, new_state} ->
+      {:error, reply, new_state} ->
+        reply(from, {:error, reply})
         {:keep_state, new_state}
     end
   end

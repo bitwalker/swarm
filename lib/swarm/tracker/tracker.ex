@@ -1080,12 +1080,13 @@ defmodule Swarm.Tracker do
   end
 
   # Attempt to start a named process on its destination node
-  defp do_track(%{name: name, m: m, f: f, a: a, from: from} = tracking, %{strategy: strategy} = state) do
+  defp do_track(%Tracking{name: name, m: m, f: f, a: a, from: from}, %TrackerState{strategy: strategy} = state) do
     current_node = Node.self()
     case Strategy.key_to_node(strategy, name) do
       :undefined ->
         warn "no node available to start #{inspect name} process"
         GenStateMachine.reply(from, {:error, :no_node_available})
+        :keep_state_and_data
       ^current_node ->
         case Registry.get_by_name(name) do
           :undefined ->

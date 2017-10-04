@@ -56,7 +56,7 @@ defmodule Swarm.IntegrationTest do
     {_, {:ok, pid2}} = spawn_restart_worker(@node1, {:worker, 2})
 
     Enum.each(@nodes, fn node ->
-      assert get_registry(node) == [{{:worker, 1}, pid1}, {{:worker, 2}, pid2}]
+      assert ordered_registry(node) == [{{:worker, 1}, pid1}, {{:worker, 2}, pid2}]
     end)
 
     # netsplit
@@ -71,7 +71,7 @@ defmodule Swarm.IntegrationTest do
 
     Enum.each(@nodes, fn node ->
       # both nodes should be aware of two workers
-      assert get_registry(node) |> length() == 2
+      assert node |> get_registry() |> length() == 2
     end)
 
     # restore the cluster
@@ -84,7 +84,7 @@ defmodule Swarm.IntegrationTest do
     pid2 = whereis_name(@node1, {:worker, 2})
 
     Enum.each(@nodes, fn node ->
-      assert get_registry(node) == [{{:worker, 1}, pid1}, {{:worker, 2}, pid2}]
+      assert ordered_registry(node) == [{{:worker, 1}, pid1}, {{:worker, 2}, pid2}]
     end)
 
     shutdown(pid1)
@@ -109,10 +109,16 @@ defmodule Swarm.IntegrationTest do
     :rpc.call(node, Swarm, :whereis_name, [name], :infinity)
   end
 
+  defp ordered_registry(node) do
+    node
+    |> get_registry()
+    |> Enum.sort_by(fn {name, _pid} -> name end)
+  end
+
   # simulate a disconnect between two nodes
   defp simulate_disconnect(lnode, rnode) do
-    send({Swarm.Tracker, lnode}, {:nodedown, rnode, nil})
-    send({Swarm.Tracker, rnode}, {:nodedown, lnode, nil})
+    spawn(fn -> send({Swarm.Tracker, lnode}, {:nodedown, rnode, nil}) end)
+    spawn(fn -> send({Swarm.Tracker, rnode}, {:nodedown, lnode, nil}) end)
   end
 
   # simulate a reconnect between two nodes

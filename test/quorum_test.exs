@@ -23,6 +23,8 @@ defmodule Swarm.QuorumTests do
     {:ok, _} = MyApp.WorkerSup.start_link()
 
     on_exit fn ->
+      Application.delete_env(:swarm, :static_quorum_size)
+
       nodes = Application.get_env(:swarm, :nodes, [])
       restart_cluster_using_strategy(Ring, nodes)
     end

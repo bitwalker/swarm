@@ -139,7 +139,7 @@ defmodule Swarm.Tracker do
     # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
 
-    strategy = 
+    strategy =
       Node.self
       |> Strategy.create()
       |> Strategy.add_nodes(nodelist)
@@ -556,17 +556,17 @@ defmodule Swarm.Tracker do
   end
   def tracking(:info, {:nodeup, node, _}, state) do
     state
-    |> nodeup(node) 
+    |> nodeup(node)
     |> handle_node_status()
   end
   def tracking(:info, {:nodedown, node, _}, state) do
     state
-    |> nodedown(node) 
+    |> nodedown(node)
     |> handle_node_status()
   end
   def tracking(:info, {:ensure_swarm_started_on_remote_node, node, attempts}, state) do
     state
-    |> ensure_swarm_started_on_remote_node(node, attempts) 
+    |> ensure_swarm_started_on_remote_node(node, attempts)
     |> handle_node_status()
   end
   def tracking(:info, :anti_entropy, state) do
@@ -1178,11 +1178,10 @@ defmodule Swarm.Tracker do
             _   -> GenStateMachine.reply(from, {:ok, pid})
           end
         {:error, {:already_registered, pid}} ->
-          debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}"
-          case from do
-            nil -> :ok
-            _   -> GenStateMachine.reply(from, {:ok, pid})
-          end
+          debug "#{inspect name} already registered to #{inspect pid} on #{node(pid)}, registering locally"
+          # register named process that is unknown locally
+          add_registration({name, pid, %{mfa: {m,f,a}}}, from, state)
+          :ok
         {:error, {:noproc, _}} = err ->
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}, retrying operation after #{@retry_interval}ms.."
           :timer.sleep @retry_interval
@@ -1380,7 +1379,7 @@ defmodule Swarm.Tracker do
   defp nodeup(%TrackerState{nodes: nodes, strategy: strategy} = state, node) do
     cond do
       node == Node.self ->
-        new_strategy = 
+        new_strategy =
           strategy
           |> Strategy.remove_node(state.self)
           |> Strategy.add_node(node)

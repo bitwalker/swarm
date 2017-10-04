@@ -28,6 +28,12 @@ defmodule Swarm.NodeCase do
     end)
   end
 
+  def spawn_restart_worker(node, name) do
+    call_node(node, fn ->
+      Swarm.register_name(name, MyApp.RestartWorker, :start_link, [name])
+    end)
+  end
+
   def flush() do
     receive do
       _ -> flush()

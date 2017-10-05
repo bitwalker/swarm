@@ -43,11 +43,8 @@ end
 - automatic distribution of registered processes across
   the cluster based on a consistent hashing algorithm,
   where names are partitioned across nodes based on their hash.
-- easy handoff of processes between one node and another, including
-  handoff of current process state. You may indicate whether the
-  handoff should simply restart the process on the new node, start
-  the process and then send it the handoff message containing state,
-  or ignore the handoff and remain on it's current node.
+- easy [handoff of processes](#process-handoff) between one node and another, including
+  handoff of current process state.
 - can do simple registration with `{:via, :swarm, name}`
 - both an Erlang and Elixir API
 
@@ -59,6 +56,11 @@ end
   This is how Swarm handles process handoff between nodes, and automatic restarts when nodedown
   events occur and the cluster topology changes.
 
+### Process handoff
+
+Processes may be redistributed between nodes when a node joins, or leaves, a cluster. You can indicate whether the handoff should simply restart the process on the new node, start the process and then send it the handoff message containing state, or ignore the handoff and remain on it's current node.
+
+Process state can be transferred between running nodes during process redistribution by using the `{:swarm, :begin_handoff}` and `{:swarm, :end_handoff, state}` callbacks. However process state will be lost when a node hosting a distributed process terminates. In this scenario you must restore the state yourself.
 
 ## Consistency Guarantees
 

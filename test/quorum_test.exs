@@ -23,6 +23,8 @@ defmodule Swarm.QuorumTests do
     {:ok, _} = MyApp.WorkerSup.start_link()
 
     on_exit fn ->
+      Application.delete_env(:swarm, :static_quorum_size)
+
       nodes = Application.get_env(:swarm, :nodes, [])
       restart_cluster_using_strategy(Ring, nodes)
     end
@@ -42,30 +44,16 @@ defmodule Swarm.QuorumTests do
   describe "without quorum cluster" do
     setup [:form_two_node_cluster]
 
-    test "block name registration until quorum size reached" do
-      registration = Task.async(fn ->
-        register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
+    test "should error on name registration" do
+      assert {:error, :no_node_available} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
+
+      Enum.each([@node1, @node2], fn node ->
+        assert whereis_name(node, {:test, 1}) == :undefined
+        assert get_registry(node) == []
       end)
-
-      # ensure registration is blocked, and process has not yet started/registered
-      assert get_registry(@node1) == []
-
-      # add third node to cluster, meeting min quorum requirements
-      {:ok, _node} = Cluster.spawn_node(@node3)
-
-      # register name task should now complete
-      {:ok, pid} = Task.await(registration, 5_000)
-
-      # ensure all nodes have name registered to started process
-      Enum.each([@node1, @node2, @node3], fn node ->
-        assert whereis_name(node, {:test, 1}) == pid
-        assert get_registry(node) == [{{:test, 1}, pid}]
-      end)
-
-      assert :ok = unregister_name(@node1, {:test, 1})
     end
 
-    test "should timeout a blocking track call, if provided" do
+    test "should optionally timeout a track call" do
       case register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [], 0) do
         {:error, {:EXIT, {:timeout, _}}} -> :ok
         reply -> flunk("expected timeout, instead received: #{inspect reply}")
@@ -121,48 +109,12 @@ defmodule Swarm.QuorumTests do
       end)
     end
 
-    test "should restart all killed processes after topology change restores min quorum" do
-      refs = start_named_processes()
-
-      :timer.sleep 1_000
-
-      # stopping one node means not enough needs for a quorum, running processes must be stopped
-      Cluster.stop_node(@node1)
-
-      # ensure all processes have been stopped
-      Enum.each(refs, fn ref ->
-        assert_receive {:DOWN, ^ref, _, _, _}
-      end)
-
-      # restore third node to cluster, meeting min quorum requirements
-      {:ok, _node} = Cluster.spawn_node(@node1)
-
-      # wait for node to start
-      :timer.sleep 1_000
-
-      # ensure all nodes have names registered to started processes
-      Enum.each([@node1, @node2, @node3], fn node ->
-        pids = Enum.map(@names, &whereis_name(node, &1))
-        registry = get_registry(node) |> Enum.sort_by(fn {{:test, n}, _} -> n end)
-
-        refute Enum.member?(pids, :undefined)
-        assert registry == Enum.zip(@names, pids)
-      end)
-
-      # ensure processes are alive
-      Enum.each(@names, fn name ->
-        pid = whereis_name(@node1, name)
-        node = node(pid)
-
-        assert :rpc.call(node, Process, :alive?, [pid], :infinity)
-        assert :ok = unregister_name(node, name)
-      end)
-    end
-
     test "should unregister name" do
       {:ok, _pid} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
 
       assert :ok = unregister_name(@node1, {:test, 1})
+
+      :timer.sleep 1_000
 
       Enum.each([@node1, @node2, @node3], fn node ->
        assert whereis_name(node, {:test, 1}) == :undefined

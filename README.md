@@ -92,12 +92,10 @@ Swarm provides two strategies for you to use:
   system.
 
   You configure the quorum size by defining the minimum number of nodes that must be connected in the
-  cluster to allow process registration and distribution. If there are fewer nodes currently
-  available than the quorum size, any calls to `Swarm.register_name/5` will block until enough nodes
-  have started.
+  cluster to allow process registration and distribution. Calls to `Swarm.register_name/5` will return `{:error, :no_node_available}` if there are fewer nodes available than the configured minimum quorum size.
 
   In a network partition, the partition containing at least the quorum size number of clusters will
-  continue operation. Processes running on the other side of the split will be stopped, and restarted
+  continue operation. Processes running on the other side of the split will be stopped and restarted
   on the active side. This ensures that only one instance of a registered process will be running in
   the cluster.
 

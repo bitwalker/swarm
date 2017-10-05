@@ -1345,17 +1345,20 @@ defmodule Swarm.Tracker do
 
   defp ensure_swarm_started_on_remote_node(state, node, attempts \\ 0)
   defp ensure_swarm_started_on_remote_node(%TrackerState{nodes: nodes, strategy: strategy} = state, node, attempts) when attempts <= @retry_max_attempts do
-    case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
-      {:ok, _} ->
-        info "nodeup #{node}"
-        new_state = %{state | nodes: [node|nodes], strategy: Strategy.add_node(strategy, node)}
-        {:ok, new_state, {:topology_change, {:nodeup, node}}}
-      {:error, {:swarm, _}} = error ->
-        warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect error}, will retry in #{@retry_interval}ms.."
-        Process.send_after(self(), {:ensure_swarm_started_on_remote_node, node, attempts + 1}, @retry_interval)
-        {:ok, state}
+    case :rpc.call(node, :application, :which_applications, []) do
+      app_list when is_list(app_list) ->
+        case List.keyfind(app_list, :swarm, 0) do
+          {:swarm, _, _} ->
+            info "nodeup #{node}"
+            new_state = %{state | nodes: [node|nodes], strategy: Strategy.add_node(strategy, node)}
+            {:ok, new_state, {:topology_change, {:nodeup, node}}}
+          nil ->
+            debug "nodeup for #{node} was ignored because swarm not started yet, will retry in #{@retry_interval}ms.."
+            Process.send_after(self(), {:ensure_swarm_started_on_remote_node, node, attempts + 1}, @retry_interval)
+            {:ok, state}
+        end
       other ->
-        warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect other}"
+        warn "nodeup for #{node} was ignored because: #{inspect other}"
         {:ok, state}
     end
   end

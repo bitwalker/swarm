@@ -37,7 +37,13 @@ defmodule Swarm do
   or an error tuple if registration fails. You cannot use this with processes which
   are already started, it must be started by `:swarm`.
 
-  You can optionally provide a `:timeout` value to limit the duration of blocking calls.
+  A call to `Swarm.register_name/5` will return `{:error, :no_node_available}`
+  when the configured distribution strategy returns `:undefined` as the node to
+  host the named process. This indicates that there are too few nodes available to
+  start a process. You can retry the name registration while waiting for nodes
+  to join the cluster.
+
+  Provide an optional `:timeout` value to limit the duration of register name calls.
   The default value is `:infinity` to block indefinitely.
   """
   @spec register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}

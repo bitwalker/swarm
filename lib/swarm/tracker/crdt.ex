@@ -39,11 +39,11 @@ defmodule Swarm.IntervalTreeClock do
   end
 
   @doc """
-  Gets a snapshot of a clock without it's identity, useful for sending the clock with messages,
+  Gets a snapshot of a clock without its identity. Useful for sending the clock with messages,
   but cannot be used to track events.
   """
   @spec peek(__MODULE__.t) :: __MODULE__.t
-  def peek({i, e}), do: {{0,e}, {i, e}}
+  def peek({i, e}), do: {{0, e}, {i, e}}
 
   @doc """
   Records an event on the given clock

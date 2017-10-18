@@ -30,7 +30,7 @@ defmodule Swarm do
   @doc """
   Similar to register_name/2, except this version takes module/function/args
   parameters, and starts the process, registers the pid with the given name,
-  and handles cluster topology changes by restarting the process on it's new
+  and handles cluster topology changes by restarting the process on its new
   node using the given MFA.
 
   This version also returns an ok tuple with the pid if it registers successfully,

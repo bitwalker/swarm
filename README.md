@@ -3,9 +3,10 @@
 [![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm)
 
 **NOTE**: If you are upgrading from 1.0, be aware that the autoclustering functionality has been extracted
-to it's own package, which you will need to depend on if you use that feature.
-The package is [libcluster](http://github.com/bitwalker/libcluster) and is available on Hex. Please
-be sure to read over the README to make sure your config is properly updated.
+to its own package, which you will need to depend on if you use that feature.
+The package is [libcluster](http://github.com/bitwalker/libcluster) and is available on 
+[Hex](https://hex.pm/packages/libcluster). Please be sure to read over the README to make sure your 
+config is properly updated.
 
 Swarm is a global distributed registry, offering a feature set similar to that of `gproc`,
 but architected to handle dynamic node membership and large volumes of process registrations
@@ -14,12 +15,12 @@ being created/removed in short time windows.
 To be more clear, Swarm was born out of the need for a global process registry which could
 handle large numbers of persistent processes representing devices/device connections, which
 needed to be distributed around a cluster of Erlang nodes, and easily found. Messages need
-to be routed to those processes from anywhere in the cluster, both individually, and as groups;
-and additionally, those processes need to be shifted around the cluster based on cluster topology
+to be routed to those processes from anywhere in the cluster, both individually, and as groups.
+Additionally, those processes need to be shifted around the cluster based on cluster topology
 changes, or restarted if their owning node goes down.
 
 Before writing Swarm, I tried both `global` and `gproc`, but the former is not very flexible, and
-both of them require leader election, which in the face of dynamic node membership and the sheer
+both of them require leader election, which, in the face of dynamic node membership and the sheer
 volume of registrations, ended up causing deadlocks/timeouts during leadership contention.
 
 I also attempted to use `syn`, but because it uses `mnesia`, dynamic node membership as a requirement
@@ -50,7 +51,7 @@ end
 
 ## Restrictions
 
-- auto-balancing of processes in the cluster require registrations be done via
+- auto-balancing of processes in the cluster requires registrations to be done via
   `register_name/5`, which takes module/function/args params, and handles starting
   the process for you. The MFA must return `{:ok, pid}`.
   This is how Swarm handles process handoff between nodes, and automatic restarts when nodedown
@@ -58,7 +59,7 @@ end
 
 ### Process handoff
 
-Processes may be redistributed between nodes when a node joins, or leaves, a cluster. You can indicate whether the handoff should simply restart the process on the new node, start the process and then send it the handoff message containing state, or ignore the handoff and remain on it's current node.
+Processes may be redistributed between nodes when a node joins, or leaves, a cluster. You can indicate whether the handoff should simply restart the process on the new node, start the process and then send it the handoff message containing state, or ignore the handoff and remain on its current node.
 
 Process state can be transferred between running nodes during process redistribution by using the `{:swarm, :begin_handoff}` and `{:swarm, :end_handoff, state}` callbacks. However process state will be lost when a node hosting a distributed process terminates. In this scenario you must restore the state yourself.
 
@@ -121,7 +122,7 @@ Swarm provides two strategies for you to use:
 
 ## Clustering
 
-Swarm pre-2.0 included auto-clustering functionality, but that has been split out into it's own package,
+Swarm pre-2.0 included auto-clustering functionality, but that has been split out into its own package,
 [libcluster](https://github.com/bitwalker/libcluster). Swarm works out of the box with Erlang's distribution
 tools (i.e. `Node.connect/1`, `:net_kernel.connect_node/1`, etc.), but if you need the auto-clustering that Swarm
 previously provided, you will need to add `:libcluster` to your deps, and make sure it's in your applications
@@ -145,7 +146,7 @@ config :swarm,
 
 The above will only allow nodes named something like `myapp-1@somehost` to be included in Swarm's clustering. **NOTE**:
 It is important to understand that this does not prevent those nodes from connecting to the cluster, only that Swarm will
-not include those nodes in it's distribution algorithm, or communicate with those nodes.
+not include those nodes in its distribution algorithm, or communicate with those nodes.
 
 ## Registration/Process Grouping
 
@@ -156,7 +157,7 @@ registrations, and replicate them across the cluster, however these processes wi
 to cluster topology changes.
 
 Swarm also offers process grouping, similar to the way `gproc` does properties. You "join" a process to a group
-after it's started, (beware of doing so in `init/1` outside of a Task, or it will deadlock), with `Swarm.join/2`.
+after it is started, (beware of doing so in `init/1` outside of a Task, or it will deadlock), with `Swarm.join/2`.
 You can then publish messages (i.e. `cast`) with
 `Swarm.publish/2`, and/or call all processes in a group and collect results (i.e. `call`) with `Swarm.multi_call/2` or
 `Swarm.multi_call/3`. Leaving a group can be done with `Swarm.leave/2`, but will automatically be done when a process
@@ -168,9 +169,9 @@ By configuring Swarm with `debug: true` and setting Logger's log level to `:debu
 information about what it is doing during operation to troubleshoot issues.
 
 To dump the tracker's state, you can use `:sys.get_state(Swarm.Tracker)` or `:sys.get_status(Swarm.Tracker)`.
-The former will dump the tracker state including what nodes it's tracking, what nodes are in the hash ring,
+The former will dump the tracker state including what nodes it is tracking, what nodes are in the hash ring,
 and the state of the interval tree clock. The latter will dump more detailed process info, including the current
-function and it's arguments. This is particularly useful if it appears that the tracker is stuck and not doing
+function and its arguments. This is particularly useful if it appears that the tracker is stuck and not doing
 anything. If you do find such things, please gist all of these results and open an issue so that I can fix these
 issues if they arise.
 
@@ -228,13 +229,13 @@ defmodule MyApp.Worker do
   #
   #   - `:restart`, to simply restart the process on the new node
   #   - `{:resume, state}`, to hand off some state to the new process
-  #   - `:ignore`, to leave the process running on it's current node
+  #   - `:ignore`, to leave the process running on its current node
   #
   def handle_call({:swarm, :begin_handoff}, _from, {name, delay}) do
     {:reply, {:resume, delay}, {name, delay}}
   end
-  # called after the process has been restarted on it's new node,
-  # and the old process's state is being handed off. This is only
+  # called after the process has been restarted on its new node,
+  # and the old process' state is being handed off. This is only
   # sent if the return to `begin_handoff` was `{:resume, state}`.
   # **NOTE**: This is called *after* the process is successfully started,
   # so make sure to design your processes around this caveat if you
@@ -244,7 +245,7 @@ defmodule MyApp.Worker do
   end
   # called when a network split is healed and the local process
   # should continue running, but a duplicate process on the other
-  # side of the split is handing off it's state to us. You can choose
+  # side of the split is handing off its state to us. You can choose
   # to ignore the handoff state, or apply your own conflict resolution
   # strategy
   def handle_cast({:swarm, :resolve_conflict, _delay}, state) do
@@ -257,7 +258,7 @@ defmodule MyApp.Worker do
     {:noreply, {name, delay}}
   end
   # this message is sent when this process should die
-  # because it's being moved, use this as an opportunity
+  # because it is being moved, use this as an opportunity
   # to clean up
   def handle_info({:swarm, :die}, state) do
     {:stop, :shutdown, state}

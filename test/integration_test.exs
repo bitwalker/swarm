@@ -24,7 +24,7 @@ defmodule Swarm.IntegrationTest do
     node1_registry = get_registry(@node1)
     node2_registry = get_registry(@node2)
 
-    # each node should have a all workers in their registry
+    # each node should have all workers in their registry
     assert length(node1_registry) == @worker_count
     assert length(node2_registry) == @worker_count
 

@@ -71,7 +71,7 @@ publish(Group, Message) ->
 multi_call(Group, Message) ->
     multi_call(Group, Message, 5000).
 
-%% @doc Same as multicall/2, but takes a timeout.
+%% @doc Same as multi_call/2, but takes a timeout.
 %% Any responses not received within that period are
 %% ignored.
 %% @end

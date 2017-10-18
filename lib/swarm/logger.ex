@@ -21,7 +21,7 @@ defmodule Swarm.Logger do
   def info(message), do: Logger.info("[swarm on #{Node.self}] #{message}")
 
   @doc """
-  Log a error message
+  Log an error message
   """
   @spec error(String.t) :: :ok
   def error(message), do: Logger.error("[swarm on #{Node.self}] #{message}")

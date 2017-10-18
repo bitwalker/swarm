@@ -13,7 +13,7 @@ defmodule Swarm.TrackerTests do
     :ok
   end
 
-  test "handle_replica_event with no prexisting reg" do
+  test "handle_replica_event with no existing reg" do
     {:ok, pid} = MyApp.WorkerSup.register()
     meta = %{mfa: {MyApp.WorkerSup, :register, []}}
 

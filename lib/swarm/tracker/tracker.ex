@@ -59,7 +59,7 @@ defmodule Swarm.Tracker do
   @doc """
   Tracks a process (pid) with the given name.
   Tracking processes with this function will *not* restart the process when
-  it's parent node goes down, or shift the process to other nodes if the cluster
+  its parent node goes down, or shift the process to other nodes if the cluster
   topology changes. It is strictly for global name registration.
   """
   def track(name, pid) when is_pid(pid),
@@ -68,7 +68,7 @@ defmodule Swarm.Tracker do
   @doc """
   Tracks a process created via the provided module/function/args with the given name.
   The process will be distributed on the cluster based on the implementation of the configured distribution strategy.
-  If the process's parent node goes down, it will be restarted on the new node which owns its keyspace.
+  If the process' parent node goes down, it will be restarted on the new node which owns its keyspace.
   If the cluster topology changes, and the owner of its keyspace changes, it will be shifted to
   the new owner, after initiating the handoff process as described in the documentation.
   A track call will return an error tagged tuple, `{:error, :no_node_available}`, if there is no node available to start the process.
@@ -78,7 +78,7 @@ defmodule Swarm.Tracker do
     do: GenStateMachine.call(__MODULE__, {:track, name, %{mfa: {m, f, a}}}, timeout)
 
   @doc """
-  Stops tracking the given process (pid)
+  Stops tracking the given process (pid).
   """
   def untrack(pid) when is_pid(pid),
     do: GenStateMachine.call(__MODULE__, {:untrack, pid}, :infinity)
@@ -695,7 +695,7 @@ defmodule Swarm.Tracker do
       entry(name: name, pid: pid, meta: meta) = obj, lclock when node(pid) == current_node ->
         case Strategy.key_to_node(state.strategy, name) do
           :undefined ->
-            # No node available available to host process, it must be stopped
+            # No node available to host process, it must be stopped
             debug "#{inspect pid} must be stopped as no node is available to host it"
             {:ok, new_state} = remove_registration(obj, %{state | clock: lclock})
             send(pid, {:swarm, :die})
@@ -1037,9 +1037,9 @@ defmodule Swarm.Tracker do
   end
 
   # This is only ever called if a registration needs to be sent to a remote node
-  # and that node went down in the middle of the call to it's Swarm process.
+  # and that node went down in the middle of the call to its Swarm process.
   # We need to process the nodeup/down events by re-entering the receive loop first,
-  # so we send ourselves a message to retry, this is the handler for that message
+  # so we send ourselves a message to retry. This is the handler for that message.
   defp handle_retry(from, {:track, name, meta}, state) do
     handle_call({:track, name, meta}, from, state)
   end
@@ -1214,7 +1214,7 @@ defmodule Swarm.Tracker do
         current_node = Node.self
         case meta do
           %{mfa: _} when pid_node == current_node ->
-            # This was created via register_name/4, which means we need to kill the pid we started
+            # This was created via register_name/5, which means we need to kill the pid we started
             Process.exit(pid, :kill)
           _ ->
             # This was a pid started by something else, so we can ignore it
@@ -1285,7 +1285,7 @@ defmodule Swarm.Tracker do
 
   @default_blacklist [~r/^remsh.*$/, ~r/^.+_upgrader_.+$/, ~r/^.+_maint_.+$/]
   # The list of configured ignore patterns for nodes
-  # This is only applied if no whitelist is provided.
+  # This is only applied if no blacklist is provided.
   defp node_blacklist(), do: Application.get_env(:swarm, :node_blacklist, @default_blacklist)
   # The list of configured whitelist patterns for nodes
   # If a whitelist is provided, any nodes which do not match the whitelist are ignored

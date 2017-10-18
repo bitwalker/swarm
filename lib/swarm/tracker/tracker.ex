@@ -68,8 +68,8 @@ defmodule Swarm.Tracker do
   @doc """
   Tracks a process created via the provided module/function/args with the given name.
   The process will be distributed on the cluster based on the implementation of the configured distribution strategy.
-  If the process's parent node goes down, it will be restarted on the new node which own's it's keyspace.
-  If the cluster topology changes, and the owner of it's keyspace changes, it will be shifted to
+  If the process's parent node goes down, it will be restarted on the new node which owns its keyspace.
+  If the cluster topology changes, and the owner of its keyspace changes, it will be shifted to
   the new owner, after initiating the handoff process as described in the documentation.
   A track call will return an error tagged tuple, `{:error, :no_node_available}`, if there is no node available to start the process.
   Provide a timeout value to limit the track call duration. A value of `:infinity` can be used to block indefinitely.

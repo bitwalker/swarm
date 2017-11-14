@@ -1,14 +1,15 @@
-## Unreleased
+## Next release
 
-## Changed
+### Changed
 
-- Default `node_blacklist` was expanded to ignore hot upgrade scripting
-  nodes as setup by exrm/relx/distillery.
-- New distribution strategy module `Swarm.Distribution.StaticQuorumRing` used to
-  provide consistency during a network partition ([#38](https://github.com/bitwalker/swarm/pull/38)).
+- Default `node_blacklist` was expanded to ignore hot upgrade scripting nodes as setup by exrm/relx/distillery.
+  
+### Added
+
+- New distribution strategy module `Swarm.Distribution.StaticQuorumRing` used to provide consistency during a network partition ([#38](https://github.com/bitwalker/swarm/pull/38)).
 - Name registration error returned if no available node ([#42](https://github.com/bitwalker/swarm/pull/42)).
 
-## Fixed
+### Fixed
 
 - When registering a name via `register_name/4` which is already registered,
   ensure the process we created via `apply/3` is killed.
@@ -20,16 +21,15 @@
 
 ## 2.0
 
-## Removed
+### Removed
 
 - Clustering functionality, this is now provided by the `libcluster` package
 - `:autocluster` config setting
 
-## Changed
+### Changed
 
-- `debug: true` now enables `:sys` tracing of the tracker, use the Logger level
-  to disable `:debug` level logs when `debug: false`
+- `debug: true` now enables `:sys` tracing of the tracker, use the Logger level to disable `:debug` level logs when `debug: false`
 
-## Added
+### Added
 
 - This file

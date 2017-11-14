@@ -1,4 +1,22 @@
-## Next release
+## Next Release
+
+### Changed
+
+N/A
+
+### Added
+
+N/A
+
+### Removed
+
+N/A
+
+### Fixed
+
+N/A
+
+## 3.1
 
 ### Changed
 

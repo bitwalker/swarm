@@ -1137,7 +1137,7 @@ defmodule Swarm.Tracker do
           warn "#{inspect name} could not be started on #{remote_node}: #{inspect err}, retrying operation after #{@retry_interval}ms.."
           :timer.sleep @retry_interval
           start_pid_remotely(remote_node, from, name, meta, state, attempts + 1)
-        {:error, :undef} = err ->
+        {:error, :undef} ->
           warn "#{inspect name} could not be started on #{remote_node}: target module not available on remote node, retrying operation after #{@retry_interval}ms.."
           :timer.sleep @retry_interval
           start_pid_remotely(remote_node, from, name, meta, state, attempts + 1)

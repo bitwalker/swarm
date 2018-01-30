@@ -105,6 +105,43 @@ defmodule Swarm.IntegrationTest do
 
     shutdown(pid1)
     shutdown(pid2)
+
+    # give time to sync
+    Process.sleep(1_000)
+  end
+
+  test "don't attempt to redistribute processes started with `Swarm.register_name/2`" do
+    name = {:agent, 1}
+    {_, :yes} = spawn_agent(@node1, name, [])
+
+    assert [{^name, pid}] = get_registry(@node1)
+
+    # another node joins cluster
+    Swarm.Cluster.spawn_node(:"node3@127.0.0.1")
+
+    # ensure process still running on node1
+    assert whereis_name(@node1, name) == pid
+
+    shutdown(pid)
+    Swarm.Cluster.stop_node(:"node3@127.0.0.1")
+  end
+
+  test "remove processes started with `Swarm.register_name/2` when hosting node goes down" do
+    name = {:agent, 1}
+    {_, :yes} = spawn_agent(@node1, name, [])
+
+    # give time to sync
+    Process.sleep(1_000)
+
+    assert [{^name, pid}] = get_registry(@node1)
+    assert [{^name, ^pid}] = get_registry(@node2)
+
+    # stop agent process
+    shutdown(pid)
+
+    # ensure process is removed from node registries
+    assert whereis_name(@node1, name) == :undefined
+    assert whereis_name(@node2, name) == :undefined
   end
 
   defp disconnect(node, opts) do

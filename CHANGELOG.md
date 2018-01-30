@@ -14,14 +14,14 @@ N/A
 
 ### Fixed
 
-N/A
+Don't attempt to hand-off or restart processes started with `Swarm.register_name/2` ([#63](https://github.com/bitwalker/swarm/pull/63)). Fixes #62.
 
 ## 3.1
 
 ### Changed
 
 - Default `node_blacklist` was expanded to ignore hot upgrade scripting nodes as setup by exrm/relx/distillery.
-  
+
 ### Added
 
 - New distribution strategy module `Swarm.Distribution.StaticQuorumRing` used to provide consistency during a network partition ([#38](https://github.com/bitwalker/swarm/pull/38)).

@@ -38,6 +38,14 @@ defmodule Swarm.NodeCase do
     end)
   end
 
+  def spawn_agent(node, name, initial_state) do
+    call_node(node, fn ->
+      {:ok, pid} = Agent.start(fn -> initial_state end)
+
+      Swarm.register_name(name, pid)
+    end)
+  end
+
   def flush() do
     receive do
       _ -> flush()

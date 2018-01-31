@@ -31,6 +31,14 @@ for you!
 
 View the docs [here](https://hexdocs.pm/swarm).
 
+**PLEASE READ**: If you are giving Swarm a spin, it is important to understand that you can concoct scenarios whereby
+the registry appears to be out of sync temporarily, this is a side effect of an eventually consistent model and does not mean that
+Swarm is not working correctly, rather you need to ensure that applications you build on top of Swarm are written to embrace eventual
+consistency, such that periods of inconsistency are tolerated. For the most part though, the registry replicates extremely
+quickly, so noticeable inconsistency is more of an exception than a rule, but a proper distributed system should always be designed to
+tolerate the exceptions, as they become more and more common as you scale up. If however you notice extreme inconsistency or delayed
+replication, then it is possible it may be a bug, or performance issue, so feel free to open an issue if you are unsure, and we will gladly look into it.
+
 ## Installation
 
 ```elixir

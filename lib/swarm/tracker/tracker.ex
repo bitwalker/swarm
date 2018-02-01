@@ -550,6 +550,18 @@ defmodule Swarm.Tracker do
     # A child process started by this tracker has crashed
     :keep_state_and_data
   end
+  def tracking(:info, {:nodeup, node, _}, %TrackerState{nodes: []} = state) do
+    # This case occurs when the tracker comes up without being connected to a cluster
+    # and a cluster forms after some period of time. In this case, we need to treat this
+    # like a cluster_wait -> cluster_join scenario, so that we sync with cluster and ensure
+    # any registrations on the remote node are in the local registry and vice versa
+    new_state =
+      case nodeup(state, node) do
+        {:ok, new_state} -> new_state
+        {:ok, new_state, _next_state} -> new_state
+      end
+    cluster_wait(:info, :cluster_join, new_state)
+  end
   def tracking(:info, {:nodeup, node, _}, state) do
     state
     |> nodeup(node)

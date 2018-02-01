@@ -183,10 +183,10 @@ defmodule Swarm.Tracker do
     info "selected sync node: #{sync_node}"
     # Send sync request
     ref = Process.monitor({__MODULE__, sync_node})
-    GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self()})
+    GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self(), state.clock})
     {:next_state, :syncing, %{state | sync_node: sync_node, sync_ref: ref}}
   end
-  def cluster_wait(:cast, {:sync, from}, %TrackerState{nodes: [from_node]} = state) when node(from) == from_node do
+  def cluster_wait(:cast, {:sync, from, _rclock}, %TrackerState{nodes: [from_node]} = state) when node(from) == from_node do
     info "joining cluster.."
     sync_node = node(from)
     info "syncing with #{sync_node}"
@@ -195,7 +195,7 @@ defmodule Swarm.Tracker do
     GenStateMachine.cast(from, {:sync_recv, self(), clock, Registry.snapshot()})
     {:next_state, :awaiting_sync_ack, %{state | clock: clock, sync_node: sync_node, sync_ref: ref}}
   end
-  def cluster_wait(:cast, {:sync, from}, %TrackerState{} = state) do
+  def cluster_wait(:cast, {:sync, from, _rclock}, %TrackerState{} = state) do
     info "pending sync request from #{node(from)}"
     {:keep_state, %{state | pending_sync_reqs: [from|state.pending_sync_reqs]}}
   end
@@ -229,7 +229,7 @@ defmodule Swarm.Tracker do
         info "selected sync node: #{new_sync_node}"
         # Send sync request
         ref = Process.monitor({__MODULE__, new_sync_node})
-        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self()})
+        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self(), state.clock})
         new_state = %{state | sync_node: new_sync_node, sync_ref: ref}
         {:keep_state, new_state}
     end
@@ -260,7 +260,7 @@ defmodule Swarm.Tracker do
         info "selected sync node: #{new_sync_node}"
         # Send sync request
         ref = Process.monitor({__MODULE__, new_sync_node})
-        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self()})
+        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self(), state.clock})
         new_state = %{state | nodes: new_nodes,
                               strategy: Strategy.remove_node(strategy, node),
                               sync_node: new_sync_node,
@@ -275,91 +275,114 @@ defmodule Swarm.Tracker do
                 end
     {:keep_state, new_state}
   end
-  def syncing(:cast, {:sync_begin_tiebreaker, from, rdie}, %TrackerState{sync_node: sync_node} = state) when node(from) == sync_node do
-    # Break the tie and continue
-    ldie = :rand.uniform(20)
-    info "there is a tie between syncing nodes, breaking with die roll (#{ldie}).."
-    GenStateMachine.cast(from, {:sync_end_tiebreaker, self(), rdie, ldie})
-    cond do
-      ldie > rdie or (rdie == ldie and Node.self > node(from)) ->
-        info "we won the die roll (#{ldie} vs #{rdie}), sending registry.."
-        # This is the new seed node
-        {clock, rclock} = Clock.fork(state.clock || Clock.seed())
-        GenStateMachine.cast(from, {:sync_recv, self(), rclock, Registry.snapshot()})
-        {:next_state, :awaiting_sync_ack, %{state | clock: clock}}
-      :else ->
-        info "#{node(from)} won the die roll (#{rdie} vs #{ldie}), "
-        # the other node wins the roll
-        :keep_state_and_data
-    end
-  end
-  def syncing(:cast, {:sync_end_tiebreaker, from, ldie, rdie}, %TrackerState{sync_node: sync_node} = state) when node(from) == sync_node do
-    cond do
-      rdie > ldie or (rdie == ldie and node(from) > Node.self) ->
-        info "#{node(from)} won the die roll (#{rdie} vs #{ldie}), waiting for payload.."
-        # The other node won the die roll, either by a greater die roll, or the absolute
-        # tie breaker of node ordering
-        :keep_state_and_data
-      :else ->
-        info "we won the die roll (#{ldie} vs #{rdie}), sending payload.."
-        # This is the new seed node
-        {clock, rclock} = Clock.fork(state.clock || Clock.seed())
-        GenStateMachine.cast(from, {:sync_recv, self(), rclock, Registry.snapshot()})
-        {:next_state, :awaiting_sync_ack, %{state | clock: clock}}
-    end
-  end
   # Successful first sync
   def syncing(:cast, {:sync_recv, from, clock, registry}, %TrackerState{clock: nil, sync_node: sync_node} = state)
     when node(from) == sync_node do
       info "received registry from #{node(from)}, loading.."
-      # let remote node know we've got the registry
-      GenStateMachine.cast(from, {:sync_ack, Node.self})
       # load target registry
-      for entry(name: name, pid: pid, meta: meta, clock: clock) <- registry do
+      for entry(name: name, pid: pid, meta: meta, clock: entry_clock) <- registry do
         case Registry.get_by_name(name) do
           :undefined ->
             ref = Process.monitor(pid)
-            Registry.new!(entry(name: name, pid: pid, ref: ref, meta: meta, clock: clock))
+            Registry.new!(entry(name: name, pid: pid, ref: ref, meta: meta, clock: entry_clock))
           entry(pid: ^pid, meta: ^meta) ->
             :ok
           entry(pid: ^pid, meta: old_meta) ->
             # Merge meta
             new_meta = Map.merge(old_meta, meta)
-            Registry.update(name, meta: new_meta)
+            Registry.update(name, meta: new_meta, clock: Clock.event(entry_clock))
           entry(pid: _other_pid) ->
             # the local registration already exists, but for a differnt pid
-            warn "conflicting registration for #{inspect name}!"
+            warn "conflicting registration for #{inspect name}, it will not be replicated!"
         end
       end
       # update our local clock to match remote clock
       state = %{state | clock: clock}
+      # let remote node know we've got the registry
+      GenStateMachine.cast(from, {:sync_ack, self(), clock, Registry.snapshot()})
       info "finished sync, acknowledgement sent to #{node(from)}"
       # clear any pending sync requests to prevent blocking
       resolve_pending_sync_requests(state)
   end
   # Successful anti-entropy sync
-  def syncing(:cast, {:sync_recv, from, _clock, registry}, %TrackerState{sync_node: sync_node} = state) when node(from) == sync_node do
-    info "received registry from #{sync_node}, merging.."
-    # let remote node know we've got the registry
-    GenStateMachine.cast(from, {:sync_ack, Node.self})
+  def syncing(:cast, {:sync_recv, from, _sync_clock, registry}, %TrackerState{sync_node: sync_node} = state)
+    when node(from) == sync_node do
+      info "received registry from #{sync_node}, merging.."
+      new_state = sync_registry(from, registry, state)
+      # let remote node know we've got the registry
+      GenStateMachine.cast(from, {:sync_ack, self(), new_state.clock, Registry.snapshot()})
+      info "local synchronization with #{sync_node} complete!"
+      resolve_pending_sync_requests(new_state)
+  end
+  def syncing(:cast, {:sync_err, from}, %TrackerState{nodes: nodes, sync_node: sync_node} = state) when node(from) == sync_node do
+    Process.demonitor(state.sync_ref, [:flush])
+    cond do
+      # Something weird happened during sync, so try a different node,
+      # with this implementation, we *could* end up selecting the same node
+      # again, but that's fine as this is effectively a retry
+      length(nodes) > 0 ->
+        warn "a problem occurred during sync, choosing a new node to sync with"
+        # we need to choose a different node to sync with and try again
+        new_sync_node = Enum.random(nodes)
+        ref = Process.monitor({__MODULE__, new_sync_node})
+        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self(), state.clock})
+        {:keep_state, %{state | sync_node: new_sync_node, sync_ref: ref}}
+      # Something went wrong during sync, but there are no other nodes to sync with,
+      # not even the original sync node (which probably implies it shutdown or crashed),
+      # so we're the sync node now
+      :else ->
+        warn "a problem occurred during sync, but no other available sync targets, becoming seed node"
+        {:next_state, :tracking, %{state | pending_sync_reqs: [], sync_node: nil, sync_ref: nil, clock: Clock.seed()}}
+    end
+  end
+  def syncing(:cast, {:sync, from, rclock}, %TrackerState{sync_node: sync_node} = state) when node(from) == sync_node do
+    # We're trying to sync with another node while it is trying to sync with us, deterministically
+    # choose the node which will coordinate the synchronization.
+    local_node = Node.self
+    case Clock.compare(state.clock, rclock) do
+      :lt ->
+        # The local clock is dominated by the remote clock, so the remote node will begin the sync
+        info "syncing from #{sync_node} based on tracker clock"
+        :keep_state_and_data
+      :gt ->
+        # The local clock dominates the remote clock, so the local node will begin the sync
+        info "syncing to #{sync_node} based on tracker clock"
+        {lclock, rclock} = Clock.fork(state.clock)
+        GenStateMachine.cast(from, {:sync_recv, self(), rclock, Registry.snapshot()})
+        {:next_state, :awaiting_sync_ack, %{state | clock: lclock}}
+      result when result in [:eq, :concurrent] and sync_node > local_node ->
+        # The remote node will begin the sync
+        info "syncing from #{sync_node} based on node precedence"
+        :keep_state_and_data
+      result when result in [:eq, :concurrent] ->
+        # The local node begins the sync
+        info "syncing to #{sync_node} based on node precedence"
+        {lclock, rclock} = Clock.fork(state.clock)
+        GenStateMachine.cast(from, {:sync_recv, self(), rclock, Registry.snapshot()})
+        {:next_state, :awaiting_sync_ack, %{state | clock: lclock}}
+    end
+  end
+  def syncing(:cast, {:sync, from, _rclock}, %TrackerState{} = state) do
+    info "pending sync request from #{node(from)}"
+    new_pending_reqs = Enum.uniq([from|state.pending_sync_reqs])
+    {:keep_state, %{state | pending_sync_reqs: new_pending_reqs}}
+  end
+  def syncing(_event_type, _event_data, _state) do
+    {:keep_state_and_data, :postpone}
+  end
+
+  defp sync_registry(from, registry, %TrackerState{} = state) when is_pid(from) do
+    sync_node = node(from)
     # map over the registry and check that all local entries are correct
-    new_state = Enum.reduce(registry, state, fn
+    Enum.reduce(registry, state, fn
       entry(name: rname, pid: rpid, meta: rmeta, clock: rclock) = rreg, %TrackerState{clock: clock} = state ->
       case Registry.get_by_name(rname) do
         :undefined ->
           # missing local registration
-          cond do
-            Clock.leq(rclock, clock) ->
-              # our clock is ahead, so we'll do nothing
-              debug "local is missing #{inspect rname}, but local clock is dominant, ignoring"
-              state
-            :else ->
-              # our clock is behind, so add the registration
-              debug "local is missing #{inspect rname}, adding.."
-              ref = Process.monitor(rpid)
-              Registry.new!(entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
-              %{state | clock: Clock.event(clock)}
-          end
+          debug "local tracker is missing #{inspect rname}, adding to registry"
+          ref = Process.monitor(rpid)
+          Registry.new!(entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
+          %{state | clock: Clock.event(clock)}
         entry(pid: ^rpid, meta: ^rmeta, clock: ^rclock) ->
           # this entry matches, nothing to do
           state
@@ -426,52 +449,6 @@ defmodule Swarm.Tracker do
           end
       end
     end)
-    info "synchronization complete!"
-    resolve_pending_sync_requests(new_state)
-  end
-  def syncing(:cast, {:sync_recv, from, _clock, _registry}, _state) do
-    # somebody is sending us a thing which expects an ack, but we no longer care about it
-    # we should reply even though we're dropping this message
-    GenStateMachine.cast(from, {:sync_ack, Node.self})
-    :keep_state_and_data
-  end
-  def syncing(:cast, {:sync_err, from}, %TrackerState{nodes: nodes, sync_node: sync_node} = state) when node(from) == sync_node do
-    Process.demonitor(state.sync_ref, [:flush])
-    cond do
-      # Something weird happened during sync, so try a different node,
-      # with this implementation, we *could* end up selecting the same node
-      # again, but that's fine as this is effectively a retry
-      length(nodes) > 0 ->
-        warn "a problem occurred during sync, choosing a new node to sync with"
-        # we need to choose a different node to sync with and try again
-        new_sync_node = Enum.random(nodes)
-        ref = Process.monitor({__MODULE__, new_sync_node})
-        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self()})
-        {:keep_state, %{state | sync_node: new_sync_node, sync_ref: ref}}
-      # Something went wrong during sync, but there are no other nodes to sync with,
-      # not even the original sync node (which probably implies it shutdown or crashed),
-      # so we're the sync node now
-      :else ->
-        warn "a problem occurred during sync, but no other available sync targets, becoming seed node"
-        {:next_state, :tracking, %{state | pending_sync_reqs: [], sync_node: nil, sync_ref: nil, clock: Clock.seed()}}
-    end
-  end
-  def syncing(:cast, {:sync, from}, %TrackerState{sync_node: sync_node}) when node(from) == sync_node do
-    # Incoming sync request from our target node, in other words, A is trying to sync with B,
-    # and B is trying to sync with A - we need to break the deadlock
-    # 20d, I mean why not?
-    die = :rand.uniform(20)
-    info "there is a tie between syncing nodes, breaking with die roll (#{die}).."
-    GenStateMachine.cast(from, {:sync_begin_tiebreaker, self(), die})
-    :keep_state_and_data
-  end
-  def syncing(:cast, {:sync, from}, %TrackerState{} = state) do
-    info "pending sync request from #{node(from)}"
-    new_pending_reqs = Enum.uniq([from|state.pending_sync_reqs])
-    {:keep_state, %{state | pending_sync_reqs: new_pending_reqs}}
-  end
-  def syncing(_event_type, _event_data, _state) do
-    {:keep_state_and_data, :postpone}
   end
 
   defp resolve_pending_sync_requests(%TrackerState{pending_sync_reqs: []} = state) do
@@ -505,10 +482,12 @@ defmodule Swarm.Tracker do
     end
   end
 
-  def awaiting_sync_ack(:cast, {:sync_ack, sync_node}, %TrackerState{sync_node: sync_node} = state) do
-    info "received sync acknowledgement from #{sync_node}"
-    Process.demonitor(state.sync_ref, [:flush])
-    resolve_pending_sync_requests(%{state | sync_node: nil, sync_ref: nil})
+  def awaiting_sync_ack(:cast, {:sync_ack, from, _sync_clock, registry}, %TrackerState{sync_node: sync_node} = state)
+    when sync_node == node(from) do
+      info "received sync acknowledgement from #{node(from)}, syncing with remote registry"
+      new_state = sync_registry(from, registry, state)
+      info "local synchronization with #{node(from)} complete!"
+      resolve_pending_sync_requests(new_state)
   end
   def awaiting_sync_ack(:info, {:DOWN, ref, _type, _pid, _info}, %TrackerState{sync_ref: ref} = state) do
     warn "wait for acknowledgement from #{state.sync_node} cancelled, tracker down"
@@ -535,12 +514,6 @@ defmodule Swarm.Tracker do
                   {:ok, new_state, _next_state} -> new_state
                 end
     {:keep_state, new_state}
-  end
-  def awaiting_sync_ack(:cast, {:sync_recv, from, _clock, _registry}, _state) do
-    # somebody is sending us a thing which expects an ack,
-    # we should reply even though we're dropping this message
-    GenStateMachine.cast(from, {:sync_ack, Node.self})
-    :keep_state_and_data
   end
   def awaiting_sync_ack(_event_type, _event_data, _state) do
     {:keep_state_and_data, :postpone}
@@ -619,7 +592,7 @@ defmodule Swarm.Tracker do
     sync_node = Enum.random(nodes)
     info "syncing with #{sync_node}"
     ref = Process.monitor({__MODULE__, sync_node})
-    GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self()})
+    GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self(), state.clock})
     new_state = %{state | sync_node: sync_node, sync_ref: ref}
     interval = Application.get_env(:swarm, :anti_entropy_interval, @default_anti_entropy_interval)
     Process.send_after(self(), :anti_entropy, interval)
@@ -1029,19 +1002,13 @@ defmodule Swarm.Tracker do
   end
 
   # This is the handler for local operations on the tracker which are asynchronous
-  defp handle_cast({:sync, from}, %TrackerState{clock: clock} = state) do
+  defp handle_cast({:sync, from, _rclock}, %TrackerState{clock: clock} = state) do
     debug "received sync request from #{node(from)}"
     {lclock, rclock} = Clock.fork(clock)
     sync_node = node(from)
     ref = Process.monitor(from)
     GenStateMachine.cast(from, {:sync_recv, self(), rclock, Registry.snapshot()})
     {:next_state, :awaiting_sync_ack, %{state | clock: lclock, sync_node: sync_node, sync_ref: ref}}
-  end
-  defp handle_cast({:sync_recv, from, _clock, _registry}, _state) do
-    # somebody is sending us a thing which expects an ack, but we no longer care about it
-    # we should reply even though we're dropping this message
-    GenStateMachine.cast(from, {:sync_ack, Node.self})
-    :keep_state_and_data
   end
   defp handle_cast(msg, _state) do
     warn "unrecognized cast: #{inspect msg}"

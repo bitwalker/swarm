@@ -1022,9 +1022,9 @@ defmodule Swarm.Tracker do
         :keep_state_and_data
       entry(name: name, pid: ^pid, meta: %{mfa: _mfa}) ->
         debug "lost connection to #{inspect name} (#{inspect pid}) on #{node(pid)}, node is down"
-        nodedown = node(pid)
-        # Redistribute processes as necessary
-        handle_topology_change({:nodedown, nodedown}, state)
+        state
+        |> nodedown(node(pid))
+        |> handle_node_status()
       entry(pid: ^pid) = obj ->
         debug "lost connection to #{inspect pid}, but not restartable, removing registration.."
         {:ok, new_state} = remove_registration(obj, state)

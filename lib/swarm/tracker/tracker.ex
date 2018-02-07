@@ -182,18 +182,18 @@ defmodule Swarm.Tracker do
     sync_node = Enum.random(nodes)
     info "selected sync node: #{sync_node}"
     # Send sync request
+    clock = Clock.seed()
     ref = Process.monitor({__MODULE__, sync_node})
-    GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self(), state.clock})
-    {:next_state, :syncing, %{state | sync_node: sync_node, sync_ref: ref}}
+    GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self(), clock})
+    {:next_state, :syncing, %{state | clock: clock, sync_node: sync_node, sync_ref: ref}}
   end
-  def cluster_wait(:cast, {:sync, from, _rclock}, %TrackerState{nodes: [from_node]} = state) when node(from) == from_node do
+  def cluster_wait(:cast, {:sync, from, rclock}, %TrackerState{nodes: [from_node]} = state) when node(from) == from_node do
     info "joining cluster.."
     sync_node = node(from)
     info "syncing with #{sync_node}"
     ref = Process.monitor({__MODULE__, sync_node})
-    clock = Clock.seed()
-    GenStateMachine.cast(from, {:sync_recv, self(), clock, Registry.snapshot()})
-    {:next_state, :awaiting_sync_ack, %{state | clock: clock, sync_node: sync_node, sync_ref: ref}}
+    GenStateMachine.cast(from, {:sync_recv, self(), rclock, Registry.snapshot()})
+    {:next_state, :awaiting_sync_ack, %{state | clock: rclock, sync_node: sync_node, sync_ref: ref}}
   end
   def cluster_wait(:cast, {:sync, from, _rclock}, %TrackerState{} = state) do
     info "pending sync request from #{node(from)}"
@@ -213,13 +213,6 @@ defmodule Swarm.Tracker do
   def syncing(:info, {:DOWN, ref, _type, _pid, _info}, %TrackerState{clock: clock, sync_ref: ref} = state) do
     info "the remote tracker we're syncing with has crashed, selecting a new one"
     case state.nodes -- [state.sync_node] do
-      [] when clock == nil ->
-        # there are no other nodes to select, we'll be the seed
-        info "no other available nodes, becoming seed node"
-        new_state = %{state | clock: Clock.seed(),
-                              sync_node: nil,
-                              sync_ref: nil}
-        {:next_state, :tracking, new_state}
       [] ->
         info "no other available nodes, cancelling sync"
         new_state = %{state | sync_node: nil, sync_ref: nil}
@@ -229,7 +222,7 @@ defmodule Swarm.Tracker do
         info "selected sync node: #{new_sync_node}"
         # Send sync request
         ref = Process.monitor({__MODULE__, new_sync_node})
-        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self(), state.clock})
+        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self(), clock})
         new_state = %{state | sync_node: new_sync_node, sync_ref: ref}
         {:keep_state, new_state}
     end
@@ -238,15 +231,6 @@ defmodule Swarm.Tracker do
     info "the selected sync node #{node} went down, selecting new node"
     Process.demonitor(state.sync_ref, [:flush])
     case nodes -- [node] do
-      [] when clock == nil ->
-        # there are no other nodes to select, we'll be the seed
-        info "no other available nodes, becoming seed node"
-        new_state = %{state | nodes: [],
-                              strategy: Strategy.remove_node(strategy, node),
-                              clock: Clock.seed(),
-                              sync_node: nil,
-                              sync_ref: nil}
-        {:next_state, :tracking, new_state}
       [] ->
         # there are no other nodes to select, nothing to do
         info "no other available nodes, cancelling sync"
@@ -260,7 +244,7 @@ defmodule Swarm.Tracker do
         info "selected sync node: #{new_sync_node}"
         # Send sync request
         ref = Process.monitor({__MODULE__, new_sync_node})
-        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self(), state.clock})
+        GenStateMachine.cast({__MODULE__, new_sync_node}, {:sync, self(), clock})
         new_state = %{state | nodes: new_nodes,
                               strategy: Strategy.remove_node(strategy, node),
                               sync_node: new_sync_node,
@@ -275,40 +259,11 @@ defmodule Swarm.Tracker do
                 end
     {:keep_state, new_state}
   end
-  # Successful first sync
-  def syncing(:cast, {:sync_recv, from, clock, registry}, %TrackerState{clock: nil, sync_node: sync_node} = state)
-    when node(from) == sync_node do
-      info "received registry from #{node(from)}, loading.."
-      # load target registry
-      for entry(name: name, pid: pid, meta: meta, clock: entry_clock) <- registry do
-        case Registry.get_by_name(name) do
-          :undefined ->
-            ref = Process.monitor(pid)
-            Registry.new!(entry(name: name, pid: pid, ref: ref, meta: meta, clock: entry_clock))
-          entry(pid: ^pid, meta: ^meta) ->
-            :ok
-          entry(pid: ^pid, meta: old_meta) ->
-            # Merge meta
-            new_meta = Map.merge(old_meta, meta)
-            Registry.update(name, meta: new_meta, clock: Clock.event(entry_clock))
-          entry(pid: _other_pid) ->
-            # the local registration already exists, but for a differnt pid
-            warn "conflicting registration for #{inspect name}, it will not be replicated!"
-        end
-      end
-      # update our local clock to match remote clock
-      state = %{state | clock: clock}
-      # let remote node know we've got the registry
-      GenStateMachine.cast(from, {:sync_ack, self(), clock, Registry.snapshot()})
-      info "finished sync, acknowledgement sent to #{node(from)}"
-      # clear any pending sync requests to prevent blocking
-      resolve_pending_sync_requests(state)
-  end
   # Successful anti-entropy sync
-  def syncing(:cast, {:sync_recv, from, _sync_clock, registry}, %TrackerState{sync_node: sync_node} = state)
+  def syncing(:cast, {:sync_recv, from, sync_clock, registry}, %TrackerState{sync_node: sync_node} = state)
     when node(from) == sync_node do
       info "received registry from #{sync_node}, merging.."
-      new_state = sync_registry(from, registry, state)
+      new_state = sync_registry(from, sync_clock, registry, state)
       # let remote node know we've got the registry
       GenStateMachine.cast(from, {:sync_ack, self(), new_state.clock, Registry.snapshot()})
       info "local synchronization with #{sync_node} complete!"
@@ -332,7 +287,7 @@ defmodule Swarm.Tracker do
       # so we're the sync node now
       :else ->
         warn "a problem occurred during sync, but no other available sync targets, becoming seed node"
-        {:next_state, :tracking, %{state | pending_sync_reqs: [], sync_node: nil, sync_ref: nil, clock: Clock.seed()}}
+        {:next_state, :tracking, %{state | pending_sync_reqs: [], sync_node: nil, sync_ref: nil}}
     end
   end
   def syncing(:cast, {:sync, from, rclock}, %TrackerState{sync_node: sync_node} = state) when node(from) == sync_node do
@@ -371,7 +326,7 @@ defmodule Swarm.Tracker do
     {:keep_state_and_data, :postpone}
   end
 
-  defp sync_registry(from, registry, %TrackerState{} = state) when is_pid(from) do
+  defp sync_registry(from, sync_clock, registry, %TrackerState{} = state) when is_pid(from) do
     sync_node = node(from)
     # map over the registry and check that all local entries are correct
     Enum.reduce(registry, state, fn
@@ -392,59 +347,91 @@ defmodule Swarm.Tracker do
           state
         entry(pid: ^rpid, meta: lmeta, clock: lclock) ->
           # the metadata differs, we need to merge it
-          cond do
-            Clock.leq(lclock, rclock) ->
+          case Clock.compare(lclock, rclock) do
+            :lt ->
               # the remote clock dominates, so merge favoring data from the remote registry
               new_meta = Map.merge(lmeta, rmeta)
-              Registry.update(rname, meta: new_meta)
-              %{state | clock: Clock.event(clock)}
-            Clock.leq(rclock, lclock) ->
+              Registry.update(rname, clock: Clock.event(rclock), meta: new_meta)
+            :gt ->
               # the local clock dominates, so merge favoring data from the local registry
               new_meta = Map.merge(rmeta, lmeta)
-              Registry.update(rname, meta: new_meta)
-              %{state | clock: Clock.event(clock)}
-            :else ->
-              # the clocks conflict, but there's nothing we can do, so warn and then keep the local
-              # view for the time being
-              warn "local and remote metadata for #{inspect rname} conflicts, keeping local for now"
-              state
+              Registry.update(rname, clock: Clock.event(lclock), meta: new_meta)
+            cmp when cmp in [:eq, :concurrent] ->
+              # the clocks are equivalent or concurrently modified, but the data is different, so check the registry clocks
+              if cmp == :concurrent do
+                warn "local and remote metadata for #{inspect rname} was concurrently modified"
+              end
+              case Clock.compare(clock, sync_clock) do
+                :lt ->
+                  # merge favoring remote, use remote clock as new entry clock
+                  new_meta = Map.merge(lmeta, rmeta)
+                  Registry.update(rname, clock: sync_clock, meta: new_meta)
+                :gt ->
+                  # merge favoring local, use local clock as new entry clock
+                  new_meta = Map.merge(rmeta, lmeta)
+                  Registry.update(rname, clock: clock, meta: new_meta)
+                _ ->
+                  # we can't break the tie using the registry clock, so we'll break the tie using node priority
+                  new_meta =
+                    if Node.self > sync_node do
+                      Map.merge(rmeta, lmeta)
+                    else
+                      Map.merge(lmeta, rmeta)
+                    end
+                  Registry.update(rname, clock: clock, meta: new_meta)
+              end
           end
+          state
         entry(pid: lpid, clock: lclock) = lreg ->
           # there are two different processes for the same name, we need to resolve
-          cond do
-            Clock.leq(lclock, rclock) ->
-              # the remote registration is newer
+          case Clock.compare(lclock, rclock) do
+            :lt ->
+              # the remote registration dominates
               resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
-            Clock.leq(rclock, lclock) ->
-              # the local registration is newer
+            :gt ->
+              # local registration dominates
               debug "remote view of #{inspect rname} is outdated, resolving.."
               resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
-            :else ->
-              # the clocks conflict, determine which registration is correct based on current topology
-              # and resolve the conflict
-              rpid_node    = node(rpid)
-              lpid_node    = node(lpid)
-              target_node  = Strategy.key_to_node(state.strategy, rname)
-              cond do
-                target_node == rpid_node and lpid_node != rpid_node ->
+            _ ->
+              # the entry clocks conflict, determine which one is correct based on
+              # current topology and resolve the conflict
+              rpid_node = node(rpid)
+              lpid_node = node(lpid)
+              case Strategy.key_to_node(state.strategy, rname) do
+                ^rpid_node when lpid_node != rpid_node ->
                   debug "remote and local view of #{inspect rname} conflict, but remote is correct, resolving.."
                   resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
-                target_node == lpid_node and rpid_node != lpid_node ->
+                ^lpid_node when lpid_node != rpid_node ->
                   debug "remote and local view of #{inspect rname} conflict, but local is correct, resolving.."
                   resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
-                lpid_node == rpid_node && rpid > lpid ->
-                  debug "remote and local view of #{inspect rname} conflict, " <>
-                    "but the remote view is more recent, resolving.."
-                  resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
-                lpid_node == rpid_node && lpid > rpid ->
-                  debug "remote and local view of #{inspect rname} conflict, " <>
-                    "but the local view is more recent, resolving.."
-                  resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
-                :else ->
-                  # the registrations are inconsistent with each other, and cannot be resolved
-                  warn "remote and local view of #{inspect rname} conflict, " <>
-                    "but cannot be resolved"
-                  state
+                _ ->
+                  cond do
+                    lpid_node == rpid_node and lpid > rpid ->
+                      debug "remote and local view of #{inspect rname} conflict, but local is more recent, resolving.."
+                      resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
+                    lpid_node == rpid_node and lpid < rpid ->
+                      debug "remote and local view of #{inspect rname} conflict, but remote is more recent, resolving.."
+                      resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
+                    :else ->
+                      # name should be on another node, so neither registration is correct, break tie
+                      # using registry clock instead
+                      case Clock.compare(clock, sync_clock) do
+                        :lt ->
+                          # remote dominates
+                          resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
+                        :gt ->
+                          # local dominates
+                          debug "remote view of #{inspect rname} is outdated based on registry clock, resolving.."
+                          resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
+                        _ when lpid_node > rpid_node ->
+                          # break tie using node priority
+                          debug "remote view of #{inspect rname} is outdated based on node priority, resolving.."
+                          resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
+                        _ ->
+                          # break tie using node priority
+                          resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
+                      end
+                  end
               end
           end
       end
@@ -482,10 +469,10 @@ defmodule Swarm.Tracker do
     end
   end
 
-  def awaiting_sync_ack(:cast, {:sync_ack, from, _sync_clock, registry}, %TrackerState{sync_node: sync_node} = state)
+  def awaiting_sync_ack(:cast, {:sync_ack, from, sync_clock, registry}, %TrackerState{sync_node: sync_node} = state)
     when sync_node == node(from) do
       info "received sync acknowledgement from #{node(from)}, syncing with remote registry"
-      new_state = sync_registry(from, registry, state)
+      new_state = sync_registry(from, sync_clock, registry, state)
       info "local synchronization with #{node(from)} complete!"
       resolve_pending_sync_requests(new_state)
   end
@@ -1292,9 +1279,8 @@ defmodule Swarm.Tracker do
     send(lpid, {:swarm, :die})
     # add the remote registration
     ref = Process.monitor(rpid)
-    clock = Clock.event(new_state.clock)
     Registry.new!(entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: rclock))
-    %{new_state | clock: clock}
+    new_state
   end
 
   # Used during anti-entropy checks to remove remote registrations and replace them with the local version

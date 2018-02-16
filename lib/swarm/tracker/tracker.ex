@@ -1230,7 +1230,7 @@ defmodule Swarm.Tracker do
           new_meta = Map.put(old_meta, key, value)
           nclock = Clock.event(nclock)
           Registry.update(name, [meta: new_meta, clock: Clock.peek(nclock)])
-          broadcast_event(state.nodes, Clock.peek(nclock), {:update_meta, new_meta, pid})
+          broadcast_event(state.nodes, Clock.peek(nclock), {:add_meta, key, value, pid})
           nclock
         end)
         {:ok, %{state | clock: new_clock}}
@@ -1241,12 +1241,13 @@ defmodule Swarm.Tracker do
     case Registry.get_by_pid(pid) do
       :undefined ->
         broadcast_event(state.nodes, Clock.peek(clock), {:remove_meta, key, pid})
+        {:ok, state}
       entries when is_list(entries) ->
         new_clock = Enum.reduce(entries, clock, fn entry(name: name, meta: old_meta), nclock ->
           new_meta = Map.drop(old_meta, [key])
           nclock = Clock.event(nclock)
           Registry.update(name, [meta: new_meta, clock: Clock.peek(nclock)])
-          broadcast_event(state.nodes, Clock.peek(nclock), {:update_meta, new_meta, pid})
+          broadcast_event(state.nodes, Clock.peek(nclock), {:remove_meta, key, pid})
           nclock
         end)
         {:ok, %{state | clock: new_clock}}

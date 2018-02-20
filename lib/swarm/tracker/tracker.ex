@@ -129,12 +129,15 @@ defmodule Swarm.Tracker do
   def init(_) do
     # Trap exits
     Process.flag(:trap_exit, true)
+    # If this node is ignored, then make sure we ignore everyone else
+    # to prevent accidentally interfering with the cluster
+    if ignore_node?(Node.self) do
+      Application.put_env(:swarm, :node_blacklist, [~r/^.+$/])
+    end
     # Start monitoring nodes
     :ok = :net_kernel.monitor_nodes(true, [node_type: :all])
     info "started"
-    # wait for node list to populate
     nodelist = Enum.reject(Node.list(:connected), &ignore_node?/1)
-
     strategy =
       Node.self
       |> Strategy.create()
@@ -196,8 +199,13 @@ defmodule Swarm.Tracker do
     {:next_state, :awaiting_sync_ack, %{state | clock: rclock, sync_node: sync_node, sync_ref: ref}}
   end
   def cluster_wait(:cast, {:sync, from, _rclock}, %TrackerState{} = state) do
-    info "pending sync request from #{node(from)}"
-    {:keep_state, %{state | pending_sync_reqs: [from|state.pending_sync_reqs]}}
+    if ignore_node?(node(from)) do
+      GenStateMachine.cast(from, {:sync_err, :node_ignored})
+      :keep_state_and_data
+    else
+      info "pending sync request from #{node(from)}"
+      {:keep_state, %{state | pending_sync_reqs: [from|state.pending_sync_reqs]}}
+    end
   end
   def cluster_wait(_event_type, _event_data, _state) do
     {:keep_state_and_data, :postpone}
@@ -318,9 +326,14 @@ defmodule Swarm.Tracker do
     end
   end
   def syncing(:cast, {:sync, from, _rclock}, %TrackerState{} = state) do
-    info "pending sync request from #{node(from)}"
-    new_pending_reqs = Enum.uniq([from|state.pending_sync_reqs])
-    {:keep_state, %{state | pending_sync_reqs: new_pending_reqs}}
+    if ignore_node?(node(from)) do
+      GenStateMachine.cast(from, {:sync_err, :node_ignored})
+      :keep_state_and_data
+    else
+      info "pending sync request from #{node(from)}"
+      new_pending_reqs = Enum.uniq([from|state.pending_sync_reqs])
+      {:keep_state, %{state | pending_sync_reqs: new_pending_reqs}}
+    end
   end
   def syncing(_event_type, _event_data, _state) do
     {:keep_state_and_data, :postpone}
@@ -511,16 +524,20 @@ defmodule Swarm.Tracker do
     :keep_state_and_data
   end
   def tracking(:info, {:nodeup, node, _}, %TrackerState{nodes: []} = state) do
-    # This case occurs when the tracker comes up without being connected to a cluster
-    # and a cluster forms after some period of time. In this case, we need to treat this
-    # like a cluster_wait -> cluster_join scenario, so that we sync with cluster and ensure
-    # any registrations on the remote node are in the local registry and vice versa
-    new_state =
-      case nodeup(state, node) do
-        {:ok, new_state} -> new_state
-        {:ok, new_state, _next_state} -> new_state
-      end
-    cluster_wait(:info, :cluster_join, new_state)
+    if ignore_node?(node) do
+      :keep_state_and_data
+    else
+      # This case occurs when the tracker comes up without being connected to a cluster
+      # and a cluster forms after some period of time. In this case, we need to treat this
+      # like a cluster_wait -> cluster_join scenario, so that we sync with cluster and ensure
+      # any registrations on the remote node are in the local registry and vice versa
+      new_state =
+        case nodeup(state, node) do
+          {:ok, new_state} -> new_state
+          {:ok, new_state, _next_state} -> new_state
+        end
+      cluster_wait(:info, :cluster_join, new_state)
+    end
   end
   def tracking(:info, {:nodeup, node, _}, state) do
     state
@@ -990,12 +1007,17 @@ defmodule Swarm.Tracker do
 
   # This is the handler for local operations on the tracker which are asynchronous
   defp handle_cast({:sync, from, _rclock}, %TrackerState{clock: clock} = state) do
-    debug "received sync request from #{node(from)}"
-    {lclock, rclock} = Clock.fork(clock)
-    sync_node = node(from)
-    ref = Process.monitor(from)
-    GenStateMachine.cast(from, {:sync_recv, self(), rclock, Registry.snapshot()})
-    {:next_state, :awaiting_sync_ack, %{state | clock: lclock, sync_node: sync_node, sync_ref: ref}}
+    if ignore_node?(node(from)) do
+      GenStateMachine.cast(from, {:sync_err, :node_ignored})
+      :keep_state_and_data
+    else
+      debug "received sync request from #{node(from)}"
+      {lclock, rclock} = Clock.fork(clock)
+      sync_node = node(from)
+      ref = Process.monitor(from)
+      GenStateMachine.cast(from, {:sync_recv, self(), rclock, Registry.snapshot()})
+      {:next_state, :awaiting_sync_ack, %{state | clock: lclock, sync_node: sync_node, sync_ref: ref}}
+    end
   end
   defp handle_cast(msg, _state) do
     warn "unrecognized cast: #{inspect msg}"

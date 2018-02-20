@@ -1276,10 +1276,15 @@ defmodule Swarm.Tracker do
     end
   end
 
-  @default_blacklist [~r/^remsh.*$/, ~r/^.+_upgrader_.+$/, ~r/^.+_maint_.+$/]
+  @global_blacklist MapSet.new([~r/^remsh.*$/, ~r/^.+_upgrader_.+$/, ~r/^.+_maint_.+$/])
   # The list of configured ignore patterns for nodes
   # This is only applied if no blacklist is provided.
-  defp node_blacklist(), do: Application.get_env(:swarm, :node_blacklist, @default_blacklist)
+  defp node_blacklist() do
+    Application.get_env(:swarm, :node_blacklist, [])
+    |> MapSet.new()
+    |> MapSet.union(@global_blacklist)
+    |> MapSet.to_list()
+  end
   # The list of configured whitelist patterns for nodes
   # If a whitelist is provided, any nodes which do not match the whitelist are ignored
   defp node_whitelist(), do: Application.get_env(:swarm, :node_whitelist, [])

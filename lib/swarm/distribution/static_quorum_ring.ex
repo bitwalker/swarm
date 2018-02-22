@@ -55,8 +55,13 @@ defmodule Swarm.Distribution.StaticQuorumRing do
   defstruct [:static_quorum_size, :ring]
 
   def create do
+    static_quorum_size =
+      Application.get_env(:swarm, :static_quorum_size, 2)
+      |> Integer.parse()
+      |> elem(0)
+    
     %StaticQuorumRing{
-      static_quorum_size: Application.get_env(:swarm, :static_quorum_size, 2),
+      static_quorum_size: static_quorum_size,
       ring: HashRing.new(),
     }
   end

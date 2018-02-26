@@ -55,13 +55,8 @@ defmodule Swarm.Distribution.StaticQuorumRing do
   defstruct [:static_quorum_size, :ring]
 
   def create do
-    static_quorum_size =
-      Application.get_env(:swarm, :static_quorum_size, 2)
-      |> Integer.parse()
-      |> elem(0)
-    
     %StaticQuorumRing{
-      static_quorum_size: static_quorum_size,
+      static_quorum_size: static_quorum_size(),
       ring: HashRing.new(),
     }
   end
@@ -100,5 +95,18 @@ defmodule Swarm.Distribution.StaticQuorumRing do
       node_count when node_count < static_quorum_size -> :undefined
       _ -> HashRing.key_to_node(ring, key)
     end
+  end
+
+  defp static_quorum_size() do
+    Application.get_env(:swarm, :static_quorum_size, 2)
+    |> static_quorum_size()
+  end
+
+  defp static_quorum_size(nil), do: 2
+  defp static_quorum_size(size) when is_integer(size), do: size
+  defp static_quorum_size(binary) when is_binary(binary) do
+    binary
+    |> Integer.parse()
+    |> elem(0)
   end
 end

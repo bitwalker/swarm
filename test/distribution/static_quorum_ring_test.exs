@@ -27,4 +27,22 @@ defmodule Swarm.Distribution.StaticQuorumRingTests do
 
     Application.put_env(:swarm, :static_quorum_size, static_quorum_size)
   end
+
+  test "creating StaticQuorumRing should raise if the setting is not a positive integer" do
+    static_quorum_size = Application.get_env(:swarm, :static_quorum_size)
+
+    Application.put_env(:swarm, :static_quorum_size, 0)
+    assert_raise(RuntimeError, "config :static_quorum_size should be a positive integer", &StaticQuorumRing.create/0)
+
+    Application.put_env(:swarm, :static_quorum_size, {:strange, :tuple})
+    assert_raise(RuntimeError, "config :static_quorum_size should be a positive integer", &StaticQuorumRing.create/0)
+
+    Application.put_env(:swarm, :static_quorum_size, 0.5)
+    assert_raise(RuntimeError, "config :static_quorum_size should be a positive integer", &StaticQuorumRing.create/0)
+
+    Application.put_env(:swarm, :static_quorum_size, "fake")
+    assert_raise(RuntimeError, "config :static_quorum_size should be a positive integer", &StaticQuorumRing.create/0)
+
+    Application.put_env(:swarm, :static_quorum_size, static_quorum_size)
+  end
 end

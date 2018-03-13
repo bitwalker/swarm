@@ -43,7 +43,7 @@ defmodule Swarm.IntervalTreeClock do
   but cannot be used to track events.
   """
   @spec peek(__MODULE__.t) :: __MODULE__.t
-  def peek({i, e}), do: {{0, e}, {i, e}}
+  def peek({_i, e}), do: {0, e}
 
   @doc """
   Records an event on the given clock

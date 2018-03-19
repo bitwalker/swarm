@@ -159,7 +159,7 @@ defmodule Swarm.Tracker do
   end
 
   def terminate(:shutdown, _state) do
-    debug "Tracker is about to terminate. Reason #{inspect(reason)}" 
+    debug "Tracker is about to shut down." 
   end
 
   def cluster_wait(:info, {:nodeup, node, _}, %TrackerState{} = state) do
@@ -1007,13 +1007,7 @@ defmodule Swarm.Tracker do
     GenStateMachine.reply(from, :ok)
     {:keep_state, new_state}
   end
-  defp handle_call(msg, _from, _state) do
-    warn "unrecognized call: #{inspect msg}"
-    :keep_state_and_data
-  end
-
   defp handle_call({:handoff, caller_pid, handoff_state}, from, state) do
-    current_node = state.self
     Registry.get_by_name(caller_pid)
     |> case do
       :undefined ->
@@ -1036,7 +1030,10 @@ defmodule Swarm.Tracker do
     GenStateMachine.reply(from, :finished)
     :keep_state_and_data
   end
-
+  defp handle_call(msg, _from, _state) do
+    warn "unrecognized call: #{inspect msg}"
+    :keep_state_and_data
+  end
 
   # This is the handler for local operations on the tracker which are asynchronous
   defp handle_cast({:sync, from, _rclock}, %TrackerState{clock: clock} = state) do

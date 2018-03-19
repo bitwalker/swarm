@@ -158,6 +158,10 @@ defmodule Swarm.Tracker do
     {:ok, :cluster_wait, state}
   end
 
+  def handle_info({:EXIT, _, reason}) do
+    debug "Tracker is about to terminate. Reason #{inspect(reason)}" 
+  end
+
   def cluster_wait(:info, {:nodeup, node, _}, %TrackerState{} = state) do
     new_state = case nodeup(state, node) do
                   {:ok, new_state} -> new_state
@@ -678,31 +682,6 @@ defmodule Swarm.Tracker do
     end
   end
 
-  defp handle_call({:handoff, caller_pid, handoff_state}, from, state) do
-    current_node = state.self
-    Registry.get_by_name(caller_pid)
-    |> case do
-      :undefined ->
-        # Worker was already removed from registry -> do nothing
-        debug "The node #{caller_pid} was not found in the registry"
-      entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
-        case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
-          {:error, {:invalid_ring, :no_nodes}} ->
-            debug "Cannot handoff #{inspect name} because there is no other node left"
-          other_node ->
-            debug "#{inspect name} has requested to be terminated and resumed on another node"
-            {:ok, state} = remove_registration(obj, %{state | clock: state.clock})
-            send(pid, {:swarm, :die})
-            debug "sending handoff for #{inspect name} to #{other_node}"
-            GenStateMachine.cast({__MODULE__, other_node},
-                                 {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}})
-        end
-    end
-
-    GenStateMachine.reply(from, :finished)
-    :keep_state_and_data
-  end
-
   # This is the callback for when a nodeup/down event occurs after the tracker has entered
   # the main receive loop. Topology changes are handled a bit differently during startup.
   defp handle_topology_change({type, remote_node}, %TrackerState{} = state) do
@@ -1032,6 +1011,32 @@ defmodule Swarm.Tracker do
     warn "unrecognized call: #{inspect msg}"
     :keep_state_and_data
   end
+
+  defp handle_call({:handoff, caller_pid, handoff_state}, from, state) do
+    current_node = state.self
+    Registry.get_by_name(caller_pid)
+    |> case do
+      :undefined ->
+        # Worker was already removed from registry -> do nothing
+        debug "The node #{caller_pid} was not found in the registry"
+      entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
+        case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
+          {:error, {:invalid_ring, :no_nodes}} ->
+            debug "Cannot handoff #{inspect name} because there is no other node left"
+          other_node ->
+            debug "#{inspect name} has requested to be terminated and resumed on another node"
+            {:ok, state} = remove_registration(obj, %{state | clock: state.clock})
+            send(pid, {:swarm, :die})
+            debug "sending handoff for #{inspect name} to #{other_node}"
+            GenStateMachine.cast({__MODULE__, other_node},
+                                 {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}})
+        end
+    end
+
+    GenStateMachine.reply(from, :finished)
+    :keep_state_and_data
+  end
+
 
   # This is the handler for local operations on the tracker which are asynchronous
   defp handle_cast({:sync, from, _rclock}, %TrackerState{clock: clock} = state) do

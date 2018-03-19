@@ -688,10 +688,11 @@ defmodule Swarm.Tracker do
       entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
         case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
           {:error, {:invalid_ring, :no_nodes}} ->
-            debug "Cannot handoff #{inspect name} because there is no node left"
+            debug "Cannot handoff #{inspect name} because there is no other node left"
           other_node ->
             debug "#{inspect name} has requested to be terminated and resumed on another node"
             {:ok, state} = remove_registration(obj, %{state | clock: state.clock})
+            send(pid, {:swarm, :die})
             debug "sending handoff for #{inspect name} to #{other_node}"
             GenStateMachine.cast({__MODULE__, other_node},
                                  {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}})

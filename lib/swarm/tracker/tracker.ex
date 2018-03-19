@@ -56,6 +56,9 @@ defmodule Swarm.Tracker do
   def whereis(name),
     do: GenStateMachine.call(__MODULE__, {:whereis, name}, :infinity)
 
+  def handoff(pid, state),
+    do: GenStateMachine.call(__MODULE__, {:handoff, pid, state}, :infinity)
+
   @doc """
   Tracks a process (pid) with the given name.
   Tracking processes with this function will *not* restart the process when
@@ -673,6 +676,30 @@ defmodule Swarm.Tracker do
         error Exception.format(kind, err, System.stacktrace)
         :keep_state_and_data
     end
+  end
+
+  defp handle_call({:handoff, caller_pid, handoff_state}, from, state) do
+    current_node = state.self
+        entry = Registry.get_by_name(caller_pid)
+                |> case do
+                  :undefined ->
+                    # Worker was already removed from registry -> do nothing
+                    debug "The node #{caller_pid} was not found in the registry."
+                  entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
+                    case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
+                      {:error, {:invalid_ring, :no_nodes}} ->
+                        debug "Cannot handoff #{inspect name} because there is no node left"
+                      other_node ->
+                        debug "#{inspect name} has requested to be terminated and resumed on another node"
+                        {:ok, state} = remove_registration(obj, %{state | clock: state.clock})
+                        debug "sending handoff for #{inspect name} to #{other_node}"
+                        GenStateMachine.cast({__MODULE__, other_node},
+                                             {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}})
+                    end
+                end
+
+    GenStateMachine.reply(from, :finished)
+    :keep_state_and_data
   end
 
   # This is the callback for when a nodeup/down event occurs after the tracker has entered

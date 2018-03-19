@@ -158,7 +158,7 @@ defmodule Swarm.Tracker do
     {:ok, :cluster_wait, state}
   end
 
-  def handle_info({:EXIT, _, reason}) do
+  def terminate(:shutdown, _state) do
     debug "Tracker is about to terminate. Reason #{inspect(reason)}" 
   end
 

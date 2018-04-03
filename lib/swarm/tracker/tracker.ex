@@ -158,10 +158,6 @@ defmodule Swarm.Tracker do
     {:ok, :cluster_wait, state}
   end
 
-  def terminate(:shutdown, _state) do
-    debug "Tracker is about to shut down." 
-  end
-
   def cluster_wait(:info, {:nodeup, node, _}, %TrackerState{} = state) do
     new_state = case nodeup(state, node) do
                   {:ok, new_state} -> new_state
@@ -1007,12 +1003,12 @@ defmodule Swarm.Tracker do
     GenStateMachine.reply(from, :ok)
     {:keep_state, new_state}
   end
-  defp handle_call({:handoff, caller_pid, handoff_state}, from, state) do
-    Registry.get_by_name(caller_pid)
+  defp handle_call({:handoff, worker_name, handoff_state}, from, state) do
+    Registry.get_by_name(worker_name)
     |> case do
       :undefined ->
         # Worker was already removed from registry -> do nothing
-        debug "The node #{caller_pid} was not found in the registry"
+        debug "The node #{worker_name} was not found in the registry"
       entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
         case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
           {:error, {:invalid_ring, :no_nodes}} ->

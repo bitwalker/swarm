@@ -56,7 +56,7 @@ defmodule Swarm.Distribution.StaticQuorumRing do
 
   def create do
     %StaticQuorumRing{
-      static_quorum_size: Application.get_env(:swarm, :static_quorum_size, 2),
+      static_quorum_size: static_quorum_size(),
       ring: HashRing.new(),
     }
   end
@@ -96,4 +96,22 @@ defmodule Swarm.Distribution.StaticQuorumRing do
       _ -> HashRing.key_to_node(ring, key)
     end
   end
+
+  defp static_quorum_size() do
+    Application.get_env(:swarm, :static_quorum_size, 2)
+    |> static_quorum_size()
+  end
+
+  defp static_quorum_size(nil), do: static_quorum_size(2)
+  defp static_quorum_size(binary) when is_binary(binary) do
+    binary
+    |> Integer.parse()
+    |> convert_to_integer()
+    |> static_quorum_size()
+  end
+  defp static_quorum_size(size) when is_integer(size) and size > 0, do: size
+  defp static_quorum_size(_size), do: raise "config :static_quorum_size should be a positive integer"
+
+  defp convert_to_integer({integer, _}) when is_integer(integer), do: integer
+  defp convert_to_integer(other), do: other
 end

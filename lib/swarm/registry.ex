@@ -11,6 +11,20 @@ defmodule Swarm.Registry do
   defdelegate register(name, pid), to: Tracker, as: :track
   defdelegate register(name, module, fun, args, timeout), to: Tracker, as: :track
 
+  @spec whereis_or_register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
+  def whereis_or_register_name(name, m, f, a, timeout \\ :infinity)
+  @spec whereis_or_register_name(term, atom(), atom(), [term], non_neg_integer() | :infinity) :: {:ok, pid} | {:error, term}
+  def whereis_or_register_name(name, module, fun, args, timeout) do
+    case Swarm.whereis_name(name) do
+      :undefined ->
+        case Swarm.register_name(name, module, fun, args, timeout) do
+          {:ok, pid} -> pid
+          {:error, {:already_registered, pid}} -> pid
+        end
+      pid -> pid
+    end
+  end
+
   @spec unregister(term) :: :ok
   def unregister(name) do
     case get_by_name(name) do

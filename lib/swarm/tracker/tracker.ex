@@ -852,16 +852,14 @@ defmodule Swarm.Tracker do
               new_meta = Map.put(old_meta, key, value)
               Registry.update(name, [meta: new_meta, clock: rclock])
               nclock = Clock.event(nclock)
+            Clock.leq(rclock, lclock) and Map.has_key?(old_meta, key) ->
+              debug "request to add meta to #{inspect pid} (#{inspect {key, value}}) is causally dominated by local, ignoring because it already exists"
+              nclock
             Clock.leq(rclock, lclock) ->
-              cond do
-                Map.has_key?(old_meta, key) ->
-                  debug "request to add meta to #{inspect pid} (#{inspect {key, value}}) is causally dominated by local, ignoring.."
-                  nclock
-                :else ->
-                  new_meta = Map.put(old_meta, key, value)
-                  Registry.update(name, [meta: new_meta, clock: rclock])
-                  nclock = Clock.event(nclock)
-              end
+              debug "request to add meta to #{inspect pid} (#{inspect {key, value}}) is causally dominated by local, adding since it does not exist locally"
+              new_meta = Map.put(old_meta, key, value)
+              Registry.update(name, [meta: new_meta, clock: rclock])
+              nclock = Clock.event(nclock)
             :else ->
               # we're going to take the last-writer wins approach for resolution for now
               new_meta = Map.merge(old_meta, %{key => value})
@@ -919,10 +917,12 @@ defmodule Swarm.Tracker do
               Registry.update(name, [meta: new_meta, clock: rclock])
               Clock.event(nclock)
             Clock.leq(rclock, lclock) and Map.has_key?(meta, key) ->
-              # ignore the request, as the local clock dominates the remote
-              nclock
+              debug "request to remove meta fom #{inspect pid} (#{inspect key}) is causally dominated by local, removing since it exists locally"
+              new_meta = Map.drop(meta, [key])
+              Registry.update(name, [meta: new_meta, clock: rclock])
+              Clock.event(nclock)              
             Clock.leq(rclock, lclock) ->
-              # local dominates the remote, but the key is not present anyway
+              debug "request to remove meta fom #{inspect pid} (#{inspect key}) is causally dominated by local, ignoring since it doesn't exist locally"
               nclock
             Map.has_key?(meta, key) ->
               warn "received remove_meta event, but local clock conflicts with remote clock, event unhandled"

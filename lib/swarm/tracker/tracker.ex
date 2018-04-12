@@ -56,8 +56,8 @@ defmodule Swarm.Tracker do
   def whereis(name),
     do: GenStateMachine.call(__MODULE__, {:whereis, name}, :infinity)
 
-  def handoff(pid, state),
-    do: GenStateMachine.call(__MODULE__, {:handoff, pid, state}, :infinity)
+  def handoff(worker_name, state),
+    do: GenStateMachine.call(__MODULE__, {:handoff, worker_name, state}, :infinity)
 
   @doc """
   Tracks a process (pid) with the given name.

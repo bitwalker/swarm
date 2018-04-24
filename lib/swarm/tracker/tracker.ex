@@ -732,7 +732,7 @@ defmodule Swarm.Tracker do
   end
 
   # This is the callback for tracker events which are being replicated from other nodes in the cluster
-  defp handle_replica_event(_from, {:track, name, pid, meta}, rclock, %TrackerState{clock: clock} = state) do
+  defp handle_replica_event(_from, {:track, name, pid, meta}, rclock, %TrackerState{clock: clock}) do
     debug "replicating registration for #{inspect name} (#{inspect pid}) locally"
     case Registry.get_by_name(name) do
       entry(name: ^name, pid: ^pid, meta: ^meta) ->
@@ -745,7 +745,7 @@ defmodule Swarm.Tracker do
             # The remote version is dominant
             lclock = Clock.join(lclock, rclock)
             Registry.update(name, [meta: meta, clock: lclock])
-            {:keep_state, state}
+            :keep_state_and_data
           Clock.leq(rclock, lclock) ->
             # The local version is dominant
             :keep_state_and_data
@@ -765,7 +765,7 @@ defmodule Swarm.Tracker do
             new_ref = Process.monitor(pid)
             lclock = Clock.join(lclock, rclock)
             Registry.new!(entry(name: name, pid: pid, ref: new_ref, meta: meta, clock: lclock))
-            {:keep_state, state}
+            :keep_state_and_data
           Clock.leq(rclock, lclock) ->
             # The local version is dominant, so ignore this event
             :keep_state_and_data
@@ -778,7 +778,7 @@ defmodule Swarm.Tracker do
         ref = Process.monitor(pid)
         lclock = Clock.join(clock, rclock)
         Registry.new!(entry(name: name, pid: pid, ref: ref, meta: meta, clock: lclock))
-        {:keep_state, state}
+        :keep_state_and_data
     end
   end
   defp handle_replica_event(_from, {:untrack, pid}, rclock, state) do
@@ -800,7 +800,7 @@ defmodule Swarm.Tracker do
               debug "untrack is causally conflicted with track for #{inspect pid}, ignoring.."
           end
         end)
-        {:keep_state, state}
+        :keep_state_and_data
     end
   end
   defp handle_replica_event(_from, {:update_meta, new_meta, pid}, rclock, state) do
@@ -828,7 +828,7 @@ defmodule Swarm.Tracker do
               broadcast_event(state.nodes, lclock, {:update_meta, new_meta, pid})
           end
         end)
-        {:keep_state, state}
+        :keep_state_and_data
     end
   end
   defp handle_replica_event(_from, event, _clock, _state) do

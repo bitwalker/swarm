@@ -29,6 +29,23 @@ defmodule Swarm.Registry do
     end
   end
 
+  @spec whereis_or_register(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
+  def whereis_or_register(name, m, f, a, timeout \\ :infinity)
+  @spec whereis_or_register(term, atom(), atom(), [term], non_neg_integer() | :infinity) :: {:ok, pid} | {:error, term}
+  def whereis_or_register(name, module, fun, args, timeout) do
+    with :undefined <- whereis(name),
+         {:ok, pid} <- register(name, module, fun, args, timeout) do
+      {:ok, pid}
+    else
+      pid when is_pid(pid) ->
+        {:ok, pid}
+      {:error, {:already_registered, pid}} ->
+        {:ok, pid}
+      {:error, _} = err ->
+        err
+    end
+  end
+
   @spec join(term, pid) :: :ok
   def join(group, pid), do: Tracker.add_meta(group, true, pid)
 

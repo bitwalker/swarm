@@ -49,4 +49,13 @@ defmodule Swarm.RegistryTests do
     assert [my_agent] = Swarm.members(:agents)
     assert "testing" == Agent.get(my_agent, fn s -> s end)
   end
+
+  test "whereis_or_register_name/4" do
+    # lookup test
+    {:ok, pid3} = Swarm.register_name({:test, 3}, MyApp.WorkerSup, :register, [])
+    assert ^pid3 = Swarm.whereis_or_register_name({:test, 3}, MyApp.WorkerSup, :register, [])
+    # transparrent registration
+    pid4 = Swarm.whereis_or_register_name({:test, 4}, MyApp.WorkerSup, :register, [])
+    assert ^pid4 = Swarm.Registry.whereis({:test, 4})
+  end
 end

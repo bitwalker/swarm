@@ -55,7 +55,7 @@ defmodule Swarm.IntegrationTest do
     connect(@node1, to: @node2)
 
     # give time to sync
-    Process.sleep(@worker_count)
+    Process.sleep(1_000)
 
     # make sure processes are back in the correct place
     assert length(workers_for(@node1)) < @worker_count

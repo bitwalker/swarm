@@ -3,6 +3,7 @@ use Mix.Config
 config :swarm,
   nodes: [:"node1@127.0.0.1", :"node2@127.0.0.1"],
   sync_nodes_timeout: 0,
+  anti_entropy_interval: 5_000,
   debug: false,
   node_blacklist: [
     # the following blacklists nodes set up by exrm/relx/distillery
@@ -19,7 +20,7 @@ config :swarm,
   ]
 
 config :logger,
-  level: :info
+  level: :warn
 
 config :porcelain,
   goon_warn_if_missing: false

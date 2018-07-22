@@ -9,7 +9,7 @@ defmodule Swarm.TrackerTests do
   setup_all do
     :rand.seed(:exs64)
     Application.ensure_all_started(:swarm)
-    {:ok, _} = MyApp.WorkerSup.start_link()
+    MyApp.WorkerSup.start_link()
     :ok
   end
 

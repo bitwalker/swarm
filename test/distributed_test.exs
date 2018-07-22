@@ -9,8 +9,19 @@ defmodule Swarm.DistributedTests do
 
   setup_all do
     :rand.seed(:exs64)
+    :net_kernel.stop()
     {:ok, _} = :net_kernel.start([:swarm_master, :shortnames])
     Node.set_cookie(:swarm_test)
+
+    on_exit(fn ->
+      :net_kernel.stop()
+      exclude = Keyword.get(ExUnit.configuration(), :exclude, [])
+
+      unless :clustered in exclude do
+        :net_kernel.start([:"primary@127.0.0.1"])
+      end
+    end)
+
     :ok
   end
 
@@ -100,7 +111,7 @@ defmodule Swarm.DistributedTests do
     # IO.puts "node2 reconnected"
 
     # give time to sync
-    Process.sleep(30_000)
+    Process.sleep(5_000)
 
     # make sure processes are back in the correct place
     procs

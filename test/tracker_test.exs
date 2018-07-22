@@ -37,8 +37,10 @@ defmodule Swarm.TrackerTests do
 
     assert entry(name: _, pid: ^pid, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref)
 
-    assert [entry(pid: ^pid)] = Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
+    assert [entry(name: _, pid: ^pid, ref: _, meta: _, clock: _)] =
+             Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
 
-    assert [entry(pid: ^pid)] = :ets.lookup(:swarm_registry, :test1)
+    assert [entry(name: _, pid: ^pid, ref: _, meta: _, clock: _)] =
+             :ets.lookup(:swarm_registry, :test1)
   end
 end

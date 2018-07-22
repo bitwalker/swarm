@@ -45,10 +45,13 @@ defmodule Swarm.RegistryTests do
     assert entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref1)
     assert entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref2)
 
-    assert [entry(pid: ^pid2), entry(pid: ^pid1)] =
-             Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
+    assert [
+             entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _),
+             entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _)
+           ] = Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
 
-    assert [entry(pid: ^pid1)] = :ets.lookup(:swarm_registry, {:test, 1})
+    assert [entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _)] =
+             :ets.lookup(:swarm_registry, {:test, 1})
   end
 
   test "join/2 (joining a group does not create race conditions)" do
@@ -63,9 +66,12 @@ defmodule Swarm.RegistryTests do
   test "whereis_or_register_name/4" do
     # lookup test
     {:ok, pid3} = Swarm.register_name({:test, 3}, MyApp.WorkerSup, :register, [])
-    assert ^pid3 = Swarm.whereis_or_register_name({:test, 3}, MyApp.WorkerSup, :register, [])
+
+    assert {:ok, ^pid3} =
+             Swarm.whereis_or_register_name({:test, 3}, MyApp.WorkerSup, :register, [])
+
     # transparrent registration
-    pid4 = Swarm.whereis_or_register_name({:test, 4}, MyApp.WorkerSup, :register, [])
+    {:ok, pid4} = Swarm.whereis_or_register_name({:test, 4}, MyApp.WorkerSup, :register, [])
     assert ^pid4 = Swarm.Registry.whereis({:test, 4})
   end
 end

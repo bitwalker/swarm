@@ -26,11 +26,14 @@ defmodule Swarm.TrackerTests do
     all = Swarm.Registry.all()
     assert Enum.member?(all, {:test1, pid})
 
-    assert entry(name: _, pid: ^pid, ref: ref, meta: _, clock: _) = Swarm.Registry.get_by_name(:test1)
+    assert entry(name: _, pid: ^pid, ref: ref, meta: _, clock: _) =
+             Swarm.Registry.get_by_name(:test1)
 
-    assert [entry(name: :test1, pid: _, ref: _, meta: _, clock: _)] = Swarm.Registry.get_by_pid(pid)
+    assert [entry(name: :test1, pid: _, ref: _, meta: _, clock: _)] =
+             Swarm.Registry.get_by_pid(pid)
 
-    assert entry(name: _, pid: _, ref: ^ref, meta: _, clock: _) = Swarm.Registry.get_by_pid_and_name(pid, :test1)
+    assert entry(name: _, pid: _, ref: ^ref, meta: _, clock: _) =
+             Swarm.Registry.get_by_pid_and_name(pid, :test1)
 
     assert entry(name: _, pid: ^pid, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref)
 

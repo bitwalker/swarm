@@ -24,6 +24,7 @@ defmodule Swarm.Registry do
     case get_by_name(name) do
       :undefined ->
         Tracker.whereis(name)
+
       entry(pid: pid) when is_pid(pid) ->
         pid
     end
@@ -31,7 +32,9 @@ defmodule Swarm.Registry do
 
   @spec whereis_or_register(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
   def whereis_or_register(name, m, f, a, timeout \\ :infinity)
-  @spec whereis_or_register(term, atom(), atom(), [term], non_neg_integer() | :infinity) :: {:ok, pid} | {:error, term}
+
+  @spec whereis_or_register(term, atom(), atom(), [term], non_neg_integer() | :infinity) ::
+          {:ok, pid} | {:error, term}
   def whereis_or_register(name, module, fun, args, timeout) do
     with :undefined <- whereis(name),
          {:ok, pid} <- register(name, module, fun, args, timeout) do
@@ -39,8 +42,10 @@ defmodule Swarm.Registry do
     else
       pid when is_pid(pid) ->
         {:ok, pid}
+
       {:error, {:already_registered, pid}} ->
         {:ok, pid}
+
       {:error, _} = err ->
         err
     end
@@ -54,9 +59,12 @@ defmodule Swarm.Registry do
 
   @spec members(group :: term) :: [pid]
   def members(group) do
-    :ets.select(@table_name, [{entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{group => :'$4'}, clock: :'$5'), [], [:'$_']}])
+    :ets.select(@table_name, [
+      {entry(name: :"$1", pid: :"$2", ref: :"$3", meta: %{group => :"$4"}, clock: :"$5"), [],
+       [:"$_"]}
+    ])
     |> Enum.map(fn entry(pid: pid) -> pid end)
-    |> Enum.uniq
+    |> Enum.uniq()
   end
 
   @spec registered() :: [{name :: term, pid}]
@@ -81,7 +89,9 @@ defmodule Swarm.Registry do
   @spec send(name :: term, msg :: term) :: :ok
   def send(name, msg) do
     case whereis(name) do
-      :undefined -> :ok
+      :undefined ->
+        :ok
+
       pid when is_pid(pid) ->
         Kernel.send(pid, msg)
     end
@@ -95,7 +105,7 @@ defmodule Swarm.Registry do
     |> Enum.map(fn entry(name: name, pid: pid) -> {name, pid} end)
   end
 
-  @spec snapshot() :: [Entry.entry]
+  @spec snapshot() :: [Entry.entry()]
   def snapshot() do
     :ets.tab2list(@table_name)
   end
@@ -103,7 +113,7 @@ defmodule Swarm.Registry do
   @doc """
   Inserts a new registration, and returns true if successful, or false if not
   """
-  @spec new(Entry.entry) :: boolean
+  @spec new(Entry.entry()) :: boolean
   def new(entry() = reg) do
     :ets.insert_new(@table_name, reg)
   end
@@ -111,12 +121,12 @@ defmodule Swarm.Registry do
   @doc """
   Like `new/1`, but raises if the insertion fails.
   """
-  @spec new!(Entry.entry) :: true | no_return
+  @spec new!(Entry.entry()) :: true | no_return
   def new!(entry() = reg) do
     true = :ets.insert_new(@table_name, reg)
   end
 
-  @spec remove(Entry.entry) :: true
+  @spec remove(Entry.entry()) :: true
   def remove(entry() = reg) do
     :ets.delete_object(@table_name, reg)
   end
@@ -126,69 +136,85 @@ defmodule Swarm.Registry do
     case get_by_pid(pid) do
       :undefined ->
         true
+
       entries when is_list(entries) ->
         Enum.each(entries, &:ets.delete_object(@table_name, &1))
         true
     end
   end
 
-  @spec get_by_name(term()) :: :undefined | Entry.entry
+  @spec get_by_name(term()) :: :undefined | Entry.entry()
   def get_by_name(name) do
     case :ets.lookup(@table_name, name) do
-      []    -> :undefined
+      [] -> :undefined
       [obj] -> obj
     end
   end
 
-  @spec get_by_pid(pid) :: :undefined | [Entry.entry]
+  @spec get_by_pid(pid) :: :undefined | [Entry.entry()]
   def get_by_pid(pid) do
-    case :ets.match_object(@table_name, entry(name: :'$1', pid: pid, ref: :'$2', meta: :'$3', clock: :'$4')) do
+    case :ets.match_object(
+           @table_name,
+           entry(name: :"$1", pid: pid, ref: :"$2", meta: :"$3", clock: :"$4")
+         ) do
       [] -> :undefined
       list when is_list(list) -> list
     end
   end
 
-  @spec get_by_pid_and_name(pid(), term()) :: :undefined | Entry.entry
+  @spec get_by_pid_and_name(pid(), term()) :: :undefined | Entry.entry()
   def get_by_pid_and_name(pid, name) do
-    case :ets.match_object(@table_name, entry(name: name, pid: pid, ref: :'$1', meta: :'$2', clock: :'$3')) do
+    case :ets.match_object(
+           @table_name,
+           entry(name: name, pid: pid, ref: :"$1", meta: :"$2", clock: :"$3")
+         ) do
       [] -> :undefined
       [obj] -> obj
     end
   end
 
-  @spec get_by_ref(reference()) :: :undefined | Entry.entry
+  @spec get_by_ref(reference()) :: :undefined | Entry.entry()
   def get_by_ref(ref) do
-    case :ets.match_object(@table_name, entry(name: :'$1', pid: :'$2', ref: ref, meta: :'$3', clock: :'$4')) do
-      []    -> :undefined
+    case :ets.match_object(
+           @table_name,
+           entry(name: :"$1", pid: :"$2", ref: ref, meta: :"$3", clock: :"$4")
+         ) do
+      [] -> :undefined
       [obj] -> obj
     end
   end
 
-  @spec get_by_meta(term()) :: :undefined | [Entry.entry]
+  @spec get_by_meta(term()) :: :undefined | [Entry.entry()]
   def get_by_meta(key) do
-    case :ets.match_object(@table_name, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => :'$4'}, clock: :'$5')) do
-      []    -> :undefined
+    case :ets.match_object(
+           @table_name,
+           entry(name: :"$1", pid: :"$2", ref: :"$3", meta: %{key => :"$4"}, clock: :"$5")
+         ) do
+      [] -> :undefined
       list when is_list(list) -> list
     end
   end
 
-  @spec get_by_meta(term(), term()) :: :undefined | [Entry.entry]
+  @spec get_by_meta(term(), term()) :: :undefined | [Entry.entry()]
   def get_by_meta(key, value) do
-    case :ets.match_object(@table_name, entry(name: :'$1', pid: :'$2', ref: :'$3', meta: %{key => value}, clock: :'$4')) do
-      []    -> :undefined
+    case :ets.match_object(
+           @table_name,
+           entry(name: :"$1", pid: :"$2", ref: :"$3", meta: %{key => value}, clock: :"$4")
+         ) do
+      [] -> :undefined
       list when is_list(list) -> list
     end
   end
 
-  @spec reduce(term(), (Entry.entry, term() -> term())) :: term()
+  @spec reduce(term(), (Entry.entry(), term() -> term())) :: term()
   def reduce(acc, fun) when is_function(fun, 2) do
     :ets.foldl(fun, acc, @table_name)
   end
 
-
-  @spec update(term(), Keyword.t) :: boolean
+  @spec update(term(), Keyword.t()) :: boolean
   defmacro update(key, updates) do
-    fields = Enum.map(updates, fn {k, v} -> {Entry.index(k)+1, v} end)
+    fields = Enum.map(updates, fn {k, v} -> {Entry.index(k) + 1, v} end)
+
     quote bind_quoted: [table_name: @table_name, key: key, fields: fields] do
       :ets.update_element(table_name, key, fields)
     end
@@ -197,15 +223,19 @@ defmodule Swarm.Registry do
   ## GenServer Implementation
 
   def start_link(), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
+
   def init(_) do
     # start ETS table for registry
-    t = :ets.new(@table_name, [
-          :set,
-          :named_table,
-          :public,
-          keypos: 2,
-          read_concurrency: true,
-          write_concurrency: true])
+    t =
+      :ets.new(@table_name, [
+        :set,
+        :named_table,
+        :public,
+        keypos: 2,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+
     {:ok, t}
   end
 end

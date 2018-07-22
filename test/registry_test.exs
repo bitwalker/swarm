@@ -24,19 +24,29 @@ defmodule Swarm.RegistryTests do
     assert Enum.member?(all, {{:test, 1}, pid1})
     assert Enum.member?(all, {{:test, 2}, pid2})
 
-    assert entry(name: _, pid: ^pid1, ref: ref1, meta: _, clock: _) = Swarm.Registry.get_by_name({:test, 1})
-    assert entry(name: _, pid: ^pid2, ref: ref2, meta: _, clock: _) = Swarm.Registry.get_by_name({:test, 2})
+    assert entry(name: _, pid: ^pid1, ref: ref1, meta: _, clock: _) =
+             Swarm.Registry.get_by_name({:test, 1})
 
-    assert [entry(name: {:test, 1}, pid: _, ref: _, meta: _, clock: _)] = Swarm.Registry.get_by_pid(pid1)
-    assert [entry(name: {:test, 2}, pid: _, ref: _, meta: _, clock: _)] = Swarm.Registry.get_by_pid(pid2)
+    assert entry(name: _, pid: ^pid2, ref: ref2, meta: _, clock: _) =
+             Swarm.Registry.get_by_name({:test, 2})
 
-    assert entry(name: _, pid: _, ref: ^ref1, meta: _, clock: _) = Swarm.Registry.get_by_pid_and_name(pid1, {:test, 1})
-    assert entry(name: _, pid: _, ref: ^ref2, meta: _, clock: _) = Swarm.Registry.get_by_pid_and_name(pid2, {:test, 2})
+    assert [entry(name: {:test, 1}, pid: _, ref: _, meta: _, clock: _)] =
+             Swarm.Registry.get_by_pid(pid1)
+
+    assert [entry(name: {:test, 2}, pid: _, ref: _, meta: _, clock: _)] =
+             Swarm.Registry.get_by_pid(pid2)
+
+    assert entry(name: _, pid: _, ref: ^ref1, meta: _, clock: _) =
+             Swarm.Registry.get_by_pid_and_name(pid1, {:test, 1})
+
+    assert entry(name: _, pid: _, ref: ^ref2, meta: _, clock: _) =
+             Swarm.Registry.get_by_pid_and_name(pid2, {:test, 2})
 
     assert entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref1)
     assert entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref2)
 
-    assert [entry(pid: ^pid2), entry(pid: ^pid1)] = Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
+    assert [entry(pid: ^pid2), entry(pid: ^pid1)] =
+             Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
 
     assert [entry(pid: ^pid1)] = :ets.lookup(:swarm_registry, {:test, 1})
   end

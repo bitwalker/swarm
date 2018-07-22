@@ -57,32 +57,24 @@ defmodule Swarm.Distribution.StaticQuorumRing do
   def create do
     %StaticQuorumRing{
       static_quorum_size: static_quorum_size(),
-      ring: HashRing.new(),
+      ring: HashRing.new()
     }
   end
 
   def add_node(quorum, node) do
-    %StaticQuorumRing{quorum |
-      ring: HashRing.add_node(quorum.ring, node),
-    }
+    %StaticQuorumRing{quorum | ring: HashRing.add_node(quorum.ring, node)}
   end
 
   def add_node(quorum, node, weight) do
-    %StaticQuorumRing{quorum |
-      ring: HashRing.add_node(quorum.ring, node, weight),
-    }
+    %StaticQuorumRing{quorum | ring: HashRing.add_node(quorum.ring, node, weight)}
   end
 
   def add_nodes(quorum, nodes) do
-    %StaticQuorumRing{quorum |
-      ring: HashRing.add_nodes(quorum.ring, nodes),
-    }
+    %StaticQuorumRing{quorum | ring: HashRing.add_nodes(quorum.ring, nodes)}
   end
 
   def remove_node(quorum, node) do
-    %StaticQuorumRing{quorum |
-      ring: HashRing.remove_node(quorum.ring, node),
-    }
+    %StaticQuorumRing{quorum | ring: HashRing.remove_node(quorum.ring, node)}
   end
 
   @doc """
@@ -103,14 +95,18 @@ defmodule Swarm.Distribution.StaticQuorumRing do
   end
 
   defp static_quorum_size(nil), do: static_quorum_size(2)
+
   defp static_quorum_size(binary) when is_binary(binary) do
     binary
     |> Integer.parse()
     |> convert_to_integer()
     |> static_quorum_size()
   end
+
   defp static_quorum_size(size) when is_integer(size) and size > 0, do: size
-  defp static_quorum_size(_size), do: raise "config :static_quorum_size should be a positive integer"
+
+  defp static_quorum_size(_size),
+    do: raise("config :static_quorum_size should be a positive integer")
 
   defp convert_to_integer({integer, _}) when is_integer(integer), do: integer
   defp convert_to_integer(other), do: other

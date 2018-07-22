@@ -8,15 +8,16 @@ defmodule Swarm.IntegrationTest do
   @worker_count 10
 
   setup do
-    on_exit fn ->
+    on_exit(fn ->
       for {_name, pid} <- get_registry(@node1), do: shutdown(pid)
-    end
+    end)
 
     :ok
   end
 
   test "correct redistribution of processes" do
     group_name = :group1
+
     for n <- 1..@worker_count do
       {_, {:ok, _}} = spawn_worker(@node1, {:worker, n}, group_name)
     end
@@ -193,10 +194,11 @@ defmodule Swarm.IntegrationTest do
   defp members_for(node, group_name) do
     node
     |> get_group_members(group_name)
-    |> Enum.filter(fn(pid) -> node(pid) == node end)
+    |> Enum.filter(fn pid -> node(pid) == node end)
   end
 
   def shutdown(nil), do: :ok
+
   def shutdown(pid) when is_pid(pid) do
     ref = Process.monitor(pid)
 

@@ -54,12 +54,17 @@ defmodule Swarm.Cluster do
     rpc(node, :code, :add_paths, [:code.get_path()])
   end
 
+  @blacklist [~r/^primary@.*$/, ~r/^remsh.*$/, ~r/^.+_upgrader_.+$/, ~r/^.+_maint_.+$/]
+
   defp transfer_configuration(node) do
     for {app_name, _, _} <- Application.loaded_applications() do
       for {key, val} <- Application.get_all_env(app_name) do
         rpc(node, Application, :put_env, [app_name, key, val])
       end
     end
+
+    # Our current node might be blacklisted ourself; overwrite config with default
+    rpc(node, Application, :put_env, [:swarm, :node_blacklist, @blacklist])
   end
 
   defp ensure_applications_started(node) do

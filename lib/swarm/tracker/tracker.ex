@@ -480,83 +480,72 @@ defmodule Swarm.Tracker do
 
             state
 
-          entry(pid: lpid, clock: lclock) = lreg ->
-            # there are two different processes for the same name, we need to resolve
-            case Clock.compare(lclock, rclock) do
-              :lt ->
-                # the remote registration dominates
+          entry(pid: lpid, clock: _lclock) = lreg ->
+            # there are two different processes for the same name, we
+            # need to resolve determine which process is correct based
+            # on current topology and resolve the conflict
+
+            rpid_node = node(rpid)
+            lpid_node = node(lpid)
+
+            case Strategy.key_to_node(state.strategy, rname) do
+              ^rpid_node when lpid_node != rpid_node ->
+                debug(
+                  "remote and local view of #{inspect(rname)} conflict, but remote is correct, resolving.."
+                )
+
                 resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
 
-              :gt ->
-                # local registration dominates
-                debug("remote view of #{inspect(rname)} is outdated, resolving..")
+              ^lpid_node when lpid_node != rpid_node ->
+                debug(
+                  "remote and local view of #{inspect(rname)} conflict, but local is correct, resolving.."
+                )
+
                 resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
 
               _ ->
-                # the entry clocks conflict, determine which one is correct based on
-                # current topology and resolve the conflict
-                rpid_node = node(rpid)
-                lpid_node = node(lpid)
-
-                case Strategy.key_to_node(state.strategy, rname) do
-                  ^rpid_node when lpid_node != rpid_node ->
+                cond do
+                  lpid_node == rpid_node and lpid > rpid ->
                     debug(
-                      "remote and local view of #{inspect(rname)} conflict, but remote is correct, resolving.."
-                    )
-
-                    resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
-
-                  ^lpid_node when lpid_node != rpid_node ->
-                    debug(
-                      "remote and local view of #{inspect(rname)} conflict, but local is correct, resolving.."
+                      "remote and local view of #{inspect(rname)} conflict, but local is more recent, resolving.."
                     )
 
                     resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
 
-                  _ ->
-                    cond do
-                      lpid_node == rpid_node and lpid > rpid ->
+                  lpid_node == rpid_node and lpid < rpid ->
+                    debug(
+                      "remote and local view of #{inspect(rname)} conflict, but remote is more recent, resolving.."
+                    )
+
+                    resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
+
+                  :else ->
+                    # name should be on another node, so neither registration is correct, break tie
+                    # using registry clock instead
+                    case Clock.compare(clock, sync_clock) do
+                      :lt ->
+                        # remote dominates
+                        resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
+
+                      :gt ->
+                        # local dominates
                         debug(
-                          "remote and local view of #{inspect(rname)} conflict, but local is more recent, resolving.."
+                          "remote view of #{inspect(rname)} is outdated based on registry clock, resolving.."
                         )
 
                         resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
 
-                      lpid_node == rpid_node and lpid < rpid ->
+                      _ when lpid_node > rpid_node ->
+                        # break tie using node priority
                         debug(
-                          "remote and local view of #{inspect(rname)} conflict, but remote is more recent, resolving.."
+                          "remote view of #{inspect(rname)} is outdated based on node priority, resolving.."
                         )
 
+                        resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
+
+                      _ ->
+                        # break tie using node priority
                         resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
-
-                      :else ->
-                        # name should be on another node, so neither registration is correct, break tie
-                        # using registry clock instead
-                        case Clock.compare(clock, sync_clock) do
-                          :lt ->
-                            # remote dominates
-                            resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
-
-                          :gt ->
-                            # local dominates
-                            debug(
-                              "remote view of #{inspect(rname)} is outdated based on registry clock, resolving.."
-                            )
-
-                            resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
-
-                          _ when lpid_node > rpid_node ->
-                            # break tie using node priority
-                            debug(
-                              "remote view of #{inspect(rname)} is outdated based on node priority, resolving.."
-                            )
-
-                            resolve_incorrect_remote_reg(sync_node, lreg, rreg, state)
-
-                          _ ->
-                            # break tie using node priority
-                            resolve_incorrect_local_reg(sync_node, lreg, rreg, state)
-                        end
                     end
                 end
             end

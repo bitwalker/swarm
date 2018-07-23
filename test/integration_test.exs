@@ -22,6 +22,9 @@ defmodule Swarm.IntegrationTest do
       {_, {:ok, _}} = spawn_worker(@node1, {:worker, n}, group_name)
     end
 
+    # wait for process registration
+    Process.sleep(1000)
+
     node1_registry = get_registry(@node1)
     node2_registry = get_registry(@node2)
 
@@ -42,7 +45,7 @@ defmodule Swarm.IntegrationTest do
     disconnect(@node1, from: @node2)
 
     # wait for process redistribution
-    Process.sleep(@worker_count)
+    Process.sleep(1000)
 
     ## check to see if the processes were migrated as expected
     assert length(workers_for(@node1)) == @worker_count
@@ -55,7 +58,7 @@ defmodule Swarm.IntegrationTest do
     connect(@node1, to: @node2)
 
     # give time to sync
-    Process.sleep(1_000)
+    Process.sleep(1000)
 
     # make sure processes are back in the correct place
     assert length(workers_for(@node1)) < @worker_count

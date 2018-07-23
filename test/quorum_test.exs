@@ -20,7 +20,7 @@ defmodule Swarm.QuorumTests do
     Application.put_env(:swarm, :static_quorum_size, 3)
     restart_cluster_using_strategy(StaticQuorumRing, [])
 
-    {:ok, _} = MyApp.WorkerSup.start_link()
+    MyApp.WorkerSup.start_link()
 
     on_exit(fn ->
       Application.delete_env(:swarm, :static_quorum_size)
@@ -80,6 +80,8 @@ defmodule Swarm.QuorumTests do
 
       assert_receive {:DOWN, ^ref, _, _, _}
 
+      :timer.sleep(1_000)
+
       Enum.each([@node1, @node2], fn node ->
         assert whereis_name(node, {:test, 1}) == :undefined
         assert get_registry(node) == []
@@ -112,6 +114,8 @@ defmodule Swarm.QuorumTests do
 
     test "should unregister name" do
       {:ok, _pid} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
+
+      :timer.sleep(1_000)
 
       assert :ok = unregister_name(@node1, {:test, 1})
 
@@ -201,6 +205,7 @@ defmodule Swarm.QuorumTests do
     with {:ok, _node1} <- Cluster.spawn_node(@node1),
          {:ok, _node2} <- Cluster.spawn_node(@node2),
          {:ok, _node3} <- Cluster.spawn_node(@node3) do
+      Process.sleep(2000)
       :ok
     end
   end
@@ -211,6 +216,7 @@ defmodule Swarm.QuorumTests do
          {:ok, _node3} <- Cluster.spawn_node(@node3),
          {:ok, _node4} <- Cluster.spawn_node(@node4),
          {:ok, _node5} <- Cluster.spawn_node(@node5) do
+      Process.sleep(2000)
       :ok
     end
   end

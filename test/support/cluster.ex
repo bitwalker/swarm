@@ -18,7 +18,7 @@ defmodule Swarm.Cluster do
   end
 
   def spawn_node(node_host) do
-    {:ok, node} = :slave.start(to_charlist("127.0.0.1"), node_name(node_host), inet_loader_args())
+    {:ok, node} = :slave.start(to_charlist("127.0.0.1"), node_name(node_host), slave_args())
     add_code_paths(node)
     transfer_configuration(node)
     ensure_applications_started(node)
@@ -41,8 +41,9 @@ defmodule Swarm.Cluster do
     :rpc.block_call(node, module, fun, args)
   end
 
-  defp inet_loader_args do
-    to_charlist("-loader inet -hosts 127.0.0.1 -setcookie #{:erlang.get_cookie()}")
+  defp slave_args do
+    log_level = "-logger level #{Logger.level()}"
+    to_charlist("-loader inet -hosts 127.0.0.1 -setcookie #{:erlang.get_cookie()} " <> log_level)
   end
 
   defp allow_boot(host) do

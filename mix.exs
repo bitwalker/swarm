@@ -69,7 +69,10 @@ defmodule Swarm.Mixfile do
   end
 
   defp aliases() do
-    [test: "test --no-start --trace --seed=0"]
+    case System.get_env("SWARM_TEST_DEBUG") do
+      "true" -> [test: "test --no-start --trace"]
+      _ -> [test: "test --no-start"]
+    end
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]

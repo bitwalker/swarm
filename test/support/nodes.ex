@@ -4,7 +4,12 @@ defmodule Swarm.Nodes do
 
   def start(name, config \\ nil) when is_atom(name) do
     Application.ensure_started(:porcelain)
-    config_path = Path.join(__DIR__, "sys.config")
+
+    config_file =
+      case System.get_env("SWARM_DEBUG") do
+        "true" -> "sys_debug.config"
+        _ -> "sys.config"
+      end
 
     "swarm_master@" <> hostname = "#{Node.self()}"
     node_name = :"#{name}@#{hostname}"
@@ -20,7 +25,7 @@ defmodule Swarm.Nodes do
           "-hidden",
           "-sname #{node_name}",
           "-setcookie swarm_test",
-          "-config #{config_path}",
+          "-config #{Path.join(__DIR__, config_file)}",
           "-eval 'io:format(\"ok\", []).'"
         ]
 

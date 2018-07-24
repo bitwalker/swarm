@@ -326,13 +326,14 @@ MIT
 
 ## Testing
 
-`mix test` runs a variety of tests, most of the use a cluster of
+`mix test` runs a variety of tests, most of them use a cluster of
 Elixir nodes to test the tracker and the registry. If you want more
 verbose output during the tests, run them like this:
 
     # SWARM_DEBUG=true mix test
 
-This enabled GenServer tracing on the Tracker processes, amongst others.
+This sets the log level to `:debug`, runs ExUnit with `--trace`, and
+enables GenServer tracing on the Tracker processes.
 
 
 ## TODO

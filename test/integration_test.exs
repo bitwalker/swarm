@@ -1,7 +1,6 @@
 defmodule Swarm.IntegrationTest do
   use Swarm.NodeCase
 
-  @primary :"primary@127.0.0.1"
   @node1 :"node1@127.0.0.1"
   @node2 :"node2@127.0.0.1"
   @nodes [@node1, @node2]

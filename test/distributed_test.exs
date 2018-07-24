@@ -39,7 +39,6 @@ defmodule Swarm.DistributedTests do
   end
 
   test "correct redistribution of processes", %{nodes: [node1, node2 | _]} do
-    IO.inspect({:nodes, node1, node2})
     # connect nodes
     :rpc.call(node2, :net_kernel, :connect_node, [node1])
     # start swarm

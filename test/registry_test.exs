@@ -4,9 +4,10 @@ defmodule Swarm.RegistryTests do
   import Swarm.Entry
   @moduletag :capture_log
 
-  setup_all do
+  setup do
     :rand.seed(:exs64)
     Application.ensure_all_started(:swarm)
+    on_exit(fn -> Application.stop(:swarm) end)
     {:ok, _} = MyApp.WorkerSup.start_link()
     :ok
   end

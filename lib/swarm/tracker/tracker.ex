@@ -42,7 +42,7 @@ defmodule Swarm.Tracker do
     defstruct clock: nil,
               nodes: [],
               strategy: nil,
-              self: :'nonode@nohost',
+              self: :nonode@nohost,
               sync_node: nil,
               sync_ref: nil,
               pending_sync_reqs: []
@@ -781,7 +781,7 @@ defmodule Swarm.Tracker do
         :keep_state_and_data
     end
   end
-  defp handle_replica_event(_from, {:untrack, pid}, rclock, state) do
+  defp handle_replica_event(_from, {:untrack, pid}, rclock, _state) do
     debug "replica event: untrack #{inspect pid}"
     case Registry.get_by_pid(pid) do
       :undefined ->

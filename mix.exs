@@ -60,7 +60,7 @@ defmodule Swarm.Mixfile do
   end
 
   defp aliases() do
-    ["test": "test --no-start --trace --seed=0"]
+    [test: "test --no-start --trace --seed=0"]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]

@@ -69,9 +69,10 @@ defmodule Swarm.Mixfile do
   end
 
   defp aliases() do
-    case System.get_env("SWARM_TEST_DEBUG") do
-      "true" -> [test: "test --no-start --trace"]
-      _ -> [test: "test --no-start"]
+    if System.get_env("SWARM_TEST_DEBUG") do
+      [test: "test --no-start --trace"]
+    else
+      [test: "test --no-start"]
     end
   end
 

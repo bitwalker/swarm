@@ -940,7 +940,7 @@ defmodule Swarm.Tracker do
           Clock.leq(rclock, lclock) ->
             # The local version is dominant
             :keep_state_and_data
-
+            
           :else ->
             warn(
               "received track event for #{inspect(name)}, but local clock conflicts with remote clock, event unhandled"

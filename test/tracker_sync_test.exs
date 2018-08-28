@@ -16,6 +16,7 @@ defmodule Swarm.TrackerSyncTests do
     end)
 
     :rand.seed(:exs64)
+
     {:ok, _} = MyApp.WorkerSup.start_link()
     :ok
   end

@@ -15,9 +15,12 @@ defmodule Swarm.IntervalTreeClockTests do
     assert Clock.leq(rclock, lclock)
   end
 
-  test "Peeked Clock has zero identity and still compares equal", %{lclock: lclock, rclock: rclock} do
+  test "Peeked Clock has zero identity and still compares equal", %{
+    lclock: lclock,
+    rclock: rclock
+  } do
     rclock = Clock.peek(rclock)
-    
+
     {0, _} = rclock
     assert Clock.compare(lclock, rclock) == :eq
     assert Clock.leq(lclock, rclock)
@@ -76,7 +79,10 @@ defmodule Swarm.IntervalTreeClockTests do
     assert Clock.compare(joined_clock, lclock) == :gt
   end
 
-  test "Concurrent clocks can be joined and the joined clock contains events from both", %{lclock: lclock, rclock: rclock} do
+  test "Concurrent clocks can be joined and the joined clock contains events from both", %{
+    lclock: lclock,
+    rclock: rclock
+  } do
     rclock = Clock.event(rclock)
     lclock = Clock.event(lclock)
     joined_clock = Clock.join(lclock, rclock)
@@ -85,7 +91,10 @@ defmodule Swarm.IntervalTreeClockTests do
     assert Clock.compare(joined_clock, lclock) == :gt
   end
 
-  test "Concurrent clocks can be joined and new event is not concurrent anymore", %{lclock: lclock, rclock: rclock} do
+  test "Concurrent clocks can be joined and new event is not concurrent anymore", %{
+    lclock: lclock,
+    rclock: rclock
+  } do
     rclock = Clock.event(rclock)
     lclock = Clock.event(lclock)
 
@@ -97,4 +106,3 @@ defmodule Swarm.IntervalTreeClockTests do
     assert Clock.compare(joined_lclock, joined_rclock) == :gt
   end
 end
-  

@@ -12,7 +12,7 @@ defmodule Swarm.QuorumTests do
   @names [{:test, 1}, {:test, 2}, {:test, 3}, {:test, 4}, {:test, 5}]
 
   alias Swarm.Cluster
-  alias Swarm.Distribution.{Ring,StaticQuorumRing}
+  alias Swarm.Distribution.{Ring, StaticQuorumRing}
 
   setup_all do
     :rand.seed(:exs64)
@@ -20,32 +20,33 @@ defmodule Swarm.QuorumTests do
     Application.put_env(:swarm, :static_quorum_size, 3)
     restart_cluster_using_strategy(StaticQuorumRing, [])
 
-    {:ok, _} = MyApp.WorkerSup.start_link()
+    MyApp.WorkerSup.start_link()
 
-    on_exit fn ->
+    on_exit(fn ->
       Application.delete_env(:swarm, :static_quorum_size)
 
       nodes = Application.get_env(:swarm, :nodes, [])
       restart_cluster_using_strategy(Ring, nodes)
-    end
+    end)
 
     :ok
   end
 
   setup do
-    on_exit fn ->
+    on_exit(fn ->
       # stop any started nodes after each test
       @nodes
       |> Enum.map(&Task.async(fn -> Cluster.stop_node(&1) end))
       |> Enum.map(&Task.await(&1, 30_000))
-    end
+    end)
   end
 
   describe "without quorum cluster" do
     setup [:form_two_node_cluster]
 
     test "should error on name registration" do
-      assert {:error, :no_node_available} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
+      assert {:error, :no_node_available} =
+               register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
 
       Enum.each([@node1, @node2], fn node ->
         assert whereis_name(node, {:test, 1}) == :undefined
@@ -56,7 +57,7 @@ defmodule Swarm.QuorumTests do
     test "should optionally timeout a track call" do
       case register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [], 0) do
         {:error, {:EXIT, {:timeout, _}}} -> :ok
-        reply -> flunk("expected timeout, instead received: #{inspect reply}")
+        reply -> flunk("expected timeout, instead received: #{inspect(reply)}")
       end
     end
   end
@@ -79,6 +80,8 @@ defmodule Swarm.QuorumTests do
 
       assert_receive {:DOWN, ^ref, _, _, _}
 
+      :timer.sleep(1_000)
+
       Enum.each([@node1, @node2], fn node ->
         assert whereis_name(node, {:test, 1}) == :undefined
         assert get_registry(node) == []
@@ -88,12 +91,12 @@ defmodule Swarm.QuorumTests do
     test "should kill all processes after topology change results in too few nodes to host" do
       refs = start_named_processes()
 
-      :timer.sleep 1_000
+      :timer.sleep(1_000)
 
       # stopping one node means not enough nodes for a quorum, running processes must be stopped
       Cluster.stop_node(@node3)
 
-      :timer.sleep 1_000
+      :timer.sleep(1_000)
 
       # ensure all processes have been stopped
       Enum.each(refs, fn ref ->
@@ -112,13 +115,15 @@ defmodule Swarm.QuorumTests do
     test "should unregister name" do
       {:ok, _pid} = register_name(@node1, {:test, 1}, MyApp.WorkerSup, :register, [])
 
+      :timer.sleep(1_000)
+
       assert :ok = unregister_name(@node1, {:test, 1})
 
-      :timer.sleep 1_000
+      :timer.sleep(1_000)
 
       Enum.each([@node1, @node2, @node3], fn node ->
-       assert whereis_name(node, {:test, 1}) == :undefined
-       assert get_registry(node) == []
+        assert whereis_name(node, {:test, 1}) == :undefined
+        assert get_registry(node) == []
       end)
     end
   end
@@ -132,12 +137,12 @@ defmodule Swarm.QuorumTests do
         {:ok, _pid} = register_name(@node1, name, MyApp.WorkerSup, :register, [])
       end)
 
-      :timer.sleep 1_000
+      :timer.sleep(1_000)
 
       # simulate net split (1, 2, 3) and (4, 5)
       simulate_disconnect([@node1, @node2, @node3], [@node4, @node5])
 
-      :timer.sleep 1_000
+      :timer.sleep(1_000)
 
       # ensure processes are redistributed onto nodes 1, 2, or 3 (quorum)
       @names
@@ -146,8 +151,8 @@ defmodule Swarm.QuorumTests do
         refute pid == :undefined
 
         case node(pid) do
-          @node4 -> flunk "process still running on node4"
-          @node5 -> flunk "process still running on node5"
+          @node4 -> flunk("process still running on node4")
+          @node5 -> flunk("process still running on node5")
           _ -> :ok
         end
       end)
@@ -173,6 +178,7 @@ defmodule Swarm.QuorumTests do
   end
 
   defp register_name(node, name, m, f, a, timeout \\ :infinity)
+
   defp register_name(node, name, m, f, a, timeout) do
     case :rpc.call(node, Swarm, :register_name, [name, m, f, a, timeout], :infinity) do
       {:badrpc, reason} -> {:error, reason}
@@ -199,6 +205,7 @@ defmodule Swarm.QuorumTests do
     with {:ok, _node1} <- Cluster.spawn_node(@node1),
          {:ok, _node2} <- Cluster.spawn_node(@node2),
          {:ok, _node3} <- Cluster.spawn_node(@node3) do
+      Process.sleep(2000)
       :ok
     end
   end
@@ -209,6 +216,7 @@ defmodule Swarm.QuorumTests do
          {:ok, _node3} <- Cluster.spawn_node(@node3),
          {:ok, _node4} <- Cluster.spawn_node(@node4),
          {:ok, _node5} <- Cluster.spawn_node(@node5) do
+      Process.sleep(2000)
       :ok
     end
   end

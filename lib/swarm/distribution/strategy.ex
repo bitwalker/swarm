@@ -21,7 +21,7 @@ defmodule Swarm.Distribution.Strategy do
     end
   end
 
-  @type reason :: String.t
+  @type reason :: String.t()
   @type strategy :: term
   @type weight :: pos_integer
   @type nodelist :: [node() | {node(), weight}]

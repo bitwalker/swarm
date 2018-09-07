@@ -56,6 +56,12 @@ defmodule Swarm.Tracker do
   def whereis(name),
     do: GenStateMachine.call(__MODULE__, {:whereis, name}, :infinity)
 
+  @doc """
+  Hand off all the processes running on the given worker to the remaining nodes in the cluster.
+  This can be used to gracefully shut down a node.
+  Note that if you don't shut down the node after the handoff a rebalance can lead to processes being scheduled on it again.
+  In other words the handoff doesn't blacklist the node for further rebalances.
+  """
   def handoff(worker_name, state),
     do: GenStateMachine.call(__MODULE__, {:handoff, worker_name, state}, :infinity)
 

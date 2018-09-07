@@ -5,7 +5,7 @@ defmodule Swarm.Cluster do
 
     # Allow spawned nodes to fetch all code from this node
     :erl_boot_server.start([])
-    allow_boot to_charlist("127.0.0.1")
+    allow_boot(to_charlist("127.0.0.1"))
 
     case Application.load(:swarm) do
       :ok -> :ok
@@ -18,7 +18,7 @@ defmodule Swarm.Cluster do
   end
 
   def spawn_node(node_host) do
-    {:ok, node} = :slave.start(to_charlist("127.0.0.1"), node_name(node_host), inet_loader_args())
+    {:ok, node} = :slave.start(to_charlist("127.0.0.1"), node_name(node_host), slave_args())
     add_code_paths(node)
     transfer_configuration(node)
     ensure_applications_started(node)
@@ -41,8 +41,9 @@ defmodule Swarm.Cluster do
     :rpc.block_call(node, module, fun, args)
   end
 
-  defp inet_loader_args do
-    to_charlist("-loader inet -hosts 127.0.0.1 -setcookie #{:erlang.get_cookie()}")
+  defp slave_args do
+    log_level = "-logger level #{Logger.level()}"
+    to_charlist("-loader inet -hosts 127.0.0.1 -setcookie #{:erlang.get_cookie()} " <> log_level)
   end
 
   defp allow_boot(host) do
@@ -54,20 +55,27 @@ defmodule Swarm.Cluster do
     rpc(node, :code, :add_paths, [:code.get_path()])
   end
 
+  @blacklist [~r/^primary@.*$/, ~r/^remsh.*$/, ~r/^.+_upgrader_.+$/, ~r/^.+_maint_.+$/]
+
   defp transfer_configuration(node) do
-    for {app_name, _, _} <- Application.loaded_applications do
+    for {app_name, _, _} <- Application.loaded_applications() do
       for {key, val} <- Application.get_all_env(app_name) do
         rpc(node, Application, :put_env, [app_name, key, val])
       end
     end
+
+    # Our current node might be blacklisted ourself; overwrite config with default
+    rpc(node, Application, :put_env, [:swarm, :node_blacklist, @blacklist])
   end
 
   defp ensure_applications_started(node) do
     rpc(node, Application, :ensure_all_started, [:mix])
     rpc(node, Mix, :env, [Mix.env()])
-    for {app_name, _, _} <- Application.loaded_applications do
+
+    for {app_name, _, _} <- Application.loaded_applications() do
       rpc(node, Application, :ensure_all_started, [app_name])
     end
+
     rpc(node, MyApp.WorkerSup, :start_link, [])
   end
 
@@ -76,6 +84,6 @@ defmodule Swarm.Cluster do
     |> to_string
     |> String.split("@")
     |> Enum.at(0)
-    |> String.to_atom
+    |> String.to_atom()
   end
 end

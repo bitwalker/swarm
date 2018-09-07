@@ -1156,6 +1156,7 @@ defmodule Swarm.Tracker do
     GenStateMachine.reply(from, :ok)
     {:keep_state, new_state}
   end
+<<<<<<< HEAD
   defp handle_call({:handoff, worker_name, handoff_state}, from, state) do
     Registry.get_by_name(worker_name)
     |> case do
@@ -1179,6 +1180,9 @@ defmodule Swarm.Tracker do
     GenStateMachine.reply(from, :finished)
     :keep_state_and_data
   end
+=======
+
+>>>>>>> bitwalker/master
   defp handle_call(msg, _from, _state) do
     warn("unrecognized call: #{inspect(msg)}")
     :keep_state_and_data

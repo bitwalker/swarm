@@ -25,9 +25,11 @@ defmodule Swarm.NodeCase do
   def spawn_worker(node, name, group_name \\ nil) do
     call_node(node, fn ->
       result = Swarm.register_name(name, MyApp.Worker, :start_link, [])
+
       case result do
         {:ok, pid} when group_name != nil -> Swarm.join(group_name, pid)
       end
+
       result
     end)
   end
@@ -58,14 +60,16 @@ defmodule Swarm.NodeCase do
     parent = self()
     ref = make_ref()
 
-    pid = Node.spawn_link(node, fn ->
-      result = func.()
-      send parent, {ref, result}
-      ref = Process.monitor(parent)
-      receive do
-        {:DOWN, ^ref, :process, _, _} -> :ok
-      end
-    end)
+    pid =
+      Node.spawn_link(node, fn ->
+        result = func.()
+        send(parent, {ref, result})
+        ref = Process.monitor(parent)
+
+        receive do
+          {:DOWN, ^ref, :process, _, _} -> :ok
+        end
+      end)
 
     receive do
       {^ref, result} -> {pid, result}

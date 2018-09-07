@@ -9,6 +9,7 @@ defmodule MyApp.WorkerSup do
     children = [
       worker(MyApp.Worker, [], restart: :transient)
     ]
+
     supervise(children, strategy: :simple_one_for_one)
   end
 

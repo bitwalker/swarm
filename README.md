@@ -4,8 +4,8 @@
 
 **NOTE**: If you are upgrading from 1.0, be aware that the autoclustering functionality has been extracted
 to its own package, which you will need to depend on if you use that feature.
-The package is [libcluster](http://github.com/bitwalker/libcluster) and is available on 
-[Hex](https://hex.pm/packages/libcluster). Please be sure to read over the README to make sure your 
+The package is [libcluster](http://github.com/bitwalker/libcluster) and is available on
+[Hex](https://hex.pm/packages/libcluster). Please be sure to read over the README to make sure your
 config is properly updated.
 
 Swarm is a global distributed registry, offering a feature set similar to that of `gproc`,
@@ -323,6 +323,18 @@ end
 ## License
 
 MIT
+
+## Testing
+
+`mix test` runs a variety of tests, most of them use a cluster of
+Elixir nodes to test the tracker and the registry. If you want more
+verbose output during the tests, run them like this:
+
+    # SWARM_DEBUG=true mix test
+
+This sets the log level to `:debug`, runs ExUnit with `--trace`, and
+enables GenServer tracing on the Tracker processes.
+
 
 ## TODO
 

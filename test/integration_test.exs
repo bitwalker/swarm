@@ -1,25 +1,28 @@
 defmodule Swarm.IntegrationTest do
   use Swarm.NodeCase
 
-  @primary :"primary@127.0.0.1"
   @node1 :"node1@127.0.0.1"
   @node2 :"node2@127.0.0.1"
   @nodes [@node1, @node2]
   @worker_count 10
 
   setup do
-    on_exit fn ->
+    on_exit(fn ->
       for {_name, pid} <- get_registry(@node1), do: shutdown(pid)
-    end
+    end)
 
     :ok
   end
 
   test "correct redistribution of processes" do
     group_name = :group1
+
     for n <- 1..@worker_count do
       {_, {:ok, _}} = spawn_worker(@node1, {:worker, n}, group_name)
     end
+
+    # wait for process registration
+    Process.sleep(1000)
 
     node1_registry = get_registry(@node1)
     node2_registry = get_registry(@node2)
@@ -41,7 +44,7 @@ defmodule Swarm.IntegrationTest do
     disconnect(@node1, from: @node2)
 
     # wait for process redistribution
-    Process.sleep(@worker_count)
+    Process.sleep(1000)
 
     ## check to see if the processes were migrated as expected
     assert length(workers_for(@node1)) == @worker_count
@@ -54,7 +57,7 @@ defmodule Swarm.IntegrationTest do
     connect(@node1, to: @node2)
 
     # give time to sync
-    Process.sleep(@worker_count)
+    Process.sleep(1000)
 
     # make sure processes are back in the correct place
     assert length(workers_for(@node1)) < @worker_count
@@ -193,10 +196,11 @@ defmodule Swarm.IntegrationTest do
   defp members_for(node, group_name) do
     node
     |> get_group_members(group_name)
-    |> Enum.filter(fn(pid) -> node(pid) == node end)
+    |> Enum.filter(fn pid -> node(pid) == node end)
   end
 
   def shutdown(nil), do: :ok
+
   def shutdown(pid) when is_pid(pid) do
     ref = Process.monitor(pid)
 

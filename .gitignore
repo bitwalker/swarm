@@ -1,3 +1,6 @@
+# vscode elixir_ls plugin artifacts
+/.elixir_ls
+
 # The directory Mix will write compiled artifacts to.
 /_build
 

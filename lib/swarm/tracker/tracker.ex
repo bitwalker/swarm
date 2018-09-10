@@ -949,7 +949,7 @@ defmodule Swarm.Tracker do
           Clock.leq(rclock, lclock) ->
             # The local version is dominant
             :keep_state_and_data
-            
+
           :else ->
             warn(
               "received track event for #{inspect(name)}, but local clock conflicts with remote clock, event unhandled"
@@ -1418,14 +1418,8 @@ defmodule Swarm.Tracker do
   defp broadcast_event(nodes, clock, event) do
     clock = Clock.peek(clock)
 
-    case :rpc.sbcast(nodes, __MODULE__, {:event, self(), clock, event}) do
-      {_good, []} ->
-        :ok
-
-      {_good, bad_nodes} ->
-        warn("broadcast of event (#{inspect(event)}) was not recevied by #{inspect(bad_nodes)}")
-        :ok
-    end
+    :abcast = :rpc.abcast(nodes, __MODULE__, {:event, self(), clock, event})
+    :ok
   end
 
   # Add a registration and reply to the caller with the result, then return the state transition

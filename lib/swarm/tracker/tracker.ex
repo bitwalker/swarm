@@ -57,6 +57,15 @@ defmodule Swarm.Tracker do
     do: GenStateMachine.call(__MODULE__, {:whereis, name}, :infinity)
 
   @doc """
+  Hand off all the processes running on the given worker to the remaining nodes in the cluster.
+  This can be used to gracefully shut down a node.
+  Note that if you don't shut down the node after the handoff a rebalance can lead to processes being scheduled on it again.
+  In other words the handoff doesn't blacklist the node for further rebalances.
+  """
+  def handoff(worker_name, state),
+    do: GenStateMachine.call(__MODULE__, {:handoff, worker_name, state}, :infinity)
+
+  @doc """
   Tracks a process (pid) with the given name.
   Tracking processes with this function will *not* restart the process when
   its parent node goes down, or shift the process to other nodes if the cluster
@@ -1153,7 +1162,29 @@ defmodule Swarm.Tracker do
     GenStateMachine.reply(from, :ok)
     {:keep_state, new_state}
   end
+  defp handle_call({:handoff, worker_name, handoff_state}, from, state) do
+    Registry.get_by_name(worker_name)
+    |> case do
+      :undefined ->
+        # Worker was already removed from registry -> do nothing
+        debug "The node #{worker_name} was not found in the registry"
+      entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
+        case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
+          {:error, {:invalid_ring, :no_nodes}} ->
+            debug "Cannot handoff #{inspect name} because there is no other node left"
+          other_node ->
+            debug "#{inspect name} has requested to be terminated and resumed on another node"
+            {:ok, state} = remove_registration(obj, %{state | clock: state.clock})
+            send(pid, {:swarm, :die})
+            debug "sending handoff for #{inspect name} to #{other_node}"
+            GenStateMachine.cast({__MODULE__, other_node},
+                                 {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}})
+        end
+    end
 
+    GenStateMachine.reply(from, :finished)
+    :keep_state_and_data
+  end
   defp handle_call(msg, _from, _state) do
     warn("unrecognized call: #{inspect(msg)}")
     :keep_state_and_data

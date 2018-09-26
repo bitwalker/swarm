@@ -1,8 +1,6 @@
 # Swarm
 
-[![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm)
-
-[![Build Status](https://travis-ci.org/bitwalker/swarm.svg?branch=master)](https://travis-ci.org/bitwalker/swarm)
+[![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm) [![Build Status](https://travis-ci.com/bitwalker/swarm.svg?branch=master)](https://travis-ci.com/bitwalker/swarm)
 
 **NOTE**: If you are upgrading from 1.0, be aware that the autoclustering functionality has been extracted
 to its own package, which you will need to depend on if you use that feature.

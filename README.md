@@ -90,7 +90,7 @@ Swarm provides two strategies for you to use:
   separate partitions, it's generally not an issue if those events are for the same device. However
   this is clearly not ideal in all situations. Swarm also aims to be fast, so registrations and
   lookups must be as low latency as possible, even when the number of processes in the registry grows
-  very large. This is acheived without consensus by using a consistent hash of the name which
+  very large. This is achieved without consensus by using a consistent hash of the name which
   deterministically defines which node a process belongs on, and all requests to start a process on
   that node will be serialized through that node to prevent conflicts.
 

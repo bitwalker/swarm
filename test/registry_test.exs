@@ -46,13 +46,23 @@ defmodule Swarm.RegistryTests do
     assert entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref1)
     assert entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _) = Swarm.Registry.get_by_ref(ref2)
 
-    assert [
-             entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _),
-             entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _)
-           ] = Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
+    meta_enum = Swarm.Registry.get_by_meta(:mfa, {MyApp.WorkerSup, :register, []})
+
+    assert Enum.find(
+             meta_enum,
+             &match?(entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _), &1)
+           ) != nil
+
+    assert Enum.find(
+             meta_enum,
+             &match?(entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _), &1)
+           ) != nil
 
     assert [entry(name: _, pid: ^pid1, ref: _, meta: _, clock: _)] =
              :ets.lookup(:swarm_registry, {:test, 1})
+
+    assert [entry(name: _, pid: ^pid2, ref: _, meta: _, clock: _)] =
+             :ets.lookup(:swarm_registry, {:test, 2})
   end
 
   test "join/2 (joining a group does not create race conditions)" do

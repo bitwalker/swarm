@@ -168,7 +168,7 @@ defmodule Swarm.Tracker do
     timeout = Application.get_env(:swarm, :sync_nodes_timeout, @sync_nodes_timeout)
     Process.send_after(self(), :cluster_join, timeout)
 
-    state = %TrackerState{nodes: nodelist, strategy: strategy, self: node()}
+    state = %TrackerState{clock: Clock.seed(), nodes: nodelist, strategy: strategy, self: node()}
 
     {:ok, :cluster_wait, state}
   end
@@ -210,10 +210,9 @@ defmodule Swarm.Tracker do
     sync_node = Enum.random(nodes)
     info("selected sync node: #{sync_node}")
     # Send sync request
-    clock = Clock.seed()
     ref = Process.monitor({__MODULE__, sync_node})
-    GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self(), clock})
-    {:next_state, :syncing, %{state | clock: clock, sync_node: sync_node, sync_ref: ref}}
+    GenStateMachine.cast({__MODULE__, sync_node}, {:sync, self(), state.clock})
+    {:next_state, :syncing, %{state | sync_node: sync_node, sync_ref: ref}}
   end
 
   def cluster_wait(:cast, {:sync, from, rclock}, %TrackerState{nodes: [from_node]} = state)
@@ -222,10 +221,12 @@ defmodule Swarm.Tracker do
     sync_node = node(from)
     info("syncing with #{sync_node}")
     ref = Process.monitor({__MODULE__, sync_node})
+    {lclock, rclock} = Clock.fork(rclock)
+    debug("forking clock: #{inspect state.clock}, lclock: #{inspect lclock}, rclock: #{inspect rclock}")
     GenStateMachine.cast(from, {:sync_recv, self(), rclock, get_registry_snapshot()})
 
     {:next_state, :awaiting_sync_ack,
-     %{state | clock: rclock, sync_node: sync_node, sync_ref: ref}}
+    %{state | clock: lclock, sync_node: sync_node, sync_ref: ref}}
   end
 
   def cluster_wait(:cast, {:sync, from, _rclock}, %TrackerState{} = state) do
@@ -335,12 +336,12 @@ defmodule Swarm.Tracker do
         %TrackerState{sync_node: sync_node} = state
       )
       when node(from) == sync_node do
-    info("received registry from #{sync_node}, merging..")
+    info("received registry from #{sync_node}, merging #{inspect sync_clock}..")
     new_state = sync_registry(from, sync_clock, registry, state)
     # let remote node know we've got the registry
-    GenStateMachine.cast(from, {:sync_ack, self(), new_state.clock, get_registry_snapshot()})
+    GenStateMachine.cast(from, {:sync_ack, self(), sync_clock, get_registry_snapshot()})
     info("local synchronization with #{sync_node} complete!")
-    resolve_pending_sync_requests(new_state)
+    resolve_pending_sync_requests(%{new_state | clock: sync_clock})
   end
 
   def syncing(:cast, {:sync_err, from}, %TrackerState{nodes: nodes, sync_node: sync_node} = state)
@@ -387,6 +388,7 @@ defmodule Swarm.Tracker do
         # The local clock dominates the remote clock, so the local node will begin the sync
         info("syncing to #{sync_node} based on tracker clock")
         {lclock, rclock} = Clock.fork(state.clock)
+        debug("forking clock when local: #{inspect state.clock}, lclock: #{inspect lclock}, rclock: #{inspect rclock}")
         GenStateMachine.cast(from, {:sync_recv, self(), rclock, get_registry_snapshot()})
         {:next_state, :awaiting_sync_ack, %{state | clock: lclock}}
 
@@ -399,6 +401,7 @@ defmodule Swarm.Tracker do
         # The local node begins the sync
         info("syncing to #{sync_node} based on node precedence")
         {lclock, rclock} = Clock.fork(state.clock)
+        debug("forking clock when concurrent: #{inspect state.clock}, lclock: #{inspect lclock}, rclock: #{inspect rclock}")
         GenStateMachine.cast(from, {:sync_recv, self(), rclock, get_registry_snapshot()})
         {:next_state, :awaiting_sync_ack, %{state | clock: lclock}}
     end
@@ -419,7 +422,7 @@ defmodule Swarm.Tracker do
     {:keep_state_and_data, :postpone}
   end
 
-  defp sync_registry(from, sync_clock, registry, %TrackerState{} = state) when is_pid(from) do
+  defp sync_registry(from, _sync_clock, registry, %TrackerState{} = state) when is_pid(from) do
     sync_node = node(from)
     # map over the registry and check that all local entries are correct
     Enum.each(registry, fn entry(name: rname, pid: rpid, meta: rmeta, clock: rclock) = rreg ->
@@ -428,7 +431,7 @@ defmodule Swarm.Tracker do
           # missing local registration
           debug("local tracker is missing #{inspect(rname)}, adding to registry")
           ref = Process.monitor(rpid)
-          lclock = Clock.join(sync_clock, rclock)
+          lclock = Clock.join(state.clock, rclock)
           Registry.new!(entry(name: rname, pid: rpid, ref: ref, meta: rmeta, clock: lclock))
 
         entry(pid: ^rpid, meta: lmeta, clock: lclock) ->
@@ -531,7 +534,7 @@ defmodule Swarm.Tracker do
       end
     end)
 
-    %{state | clock: sync_clock}
+    state
   end
 
   defp resolve_pending_sync_requests(%TrackerState{pending_sync_reqs: []} = state) do
@@ -557,6 +560,7 @@ defmodule Swarm.Tracker do
       Enum.member?(state.nodes, pending_node) ->
         info("clearing pending sync request for #{pending_node}")
         {lclock, rclock} = Clock.fork(state.clock)
+        debug("forking clock when resolving: #{inspect state.clock}, lclock: #{inspect lclock}, rclock: #{inspect rclock}")
         ref = Process.monitor(pid)
         GenStateMachine.cast(pid, {:sync_recv, self(), rclock, get_registry_snapshot()})
 
@@ -1191,19 +1195,18 @@ defmodule Swarm.Tracker do
   end
 
   # This is the handler for local operations on the tracker which are asynchronous
-  defp handle_cast({:sync, from, _rclock}, %TrackerState{clock: clock} = state) do
+  defp handle_cast({:sync, from, rclock}, %TrackerState{} = state) do
     if ignore_node?(node(from)) do
       GenStateMachine.cast(from, {:sync_err, :node_ignored})
       :keep_state_and_data
     else
       debug("received sync request from #{node(from)}")
-      {lclock, rclock} = Clock.fork(clock)
       sync_node = node(from)
       ref = Process.monitor(from)
       GenStateMachine.cast(from, {:sync_recv, self(), rclock, get_registry_snapshot()})
 
       {:next_state, :awaiting_sync_ack,
-       %{state | clock: lclock, sync_node: sync_node, sync_ref: ref}}
+       %{state | sync_node: sync_node, sync_ref: ref}}
     end
   end
 

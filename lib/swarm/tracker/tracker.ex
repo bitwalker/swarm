@@ -336,7 +336,7 @@ defmodule Swarm.Tracker do
         %TrackerState{sync_node: sync_node} = state
       )
       when node(from) == sync_node do
-    info("received registry from #{sync_node}, merging #{inspect sync_clock}..")
+    info("received registry from #{sync_node}, merging..")
     new_state = sync_registry(from, sync_clock, registry, state)
     # let remote node know we've got the registry
     GenStateMachine.cast(from, {:sync_ack, self(), sync_clock, get_registry_snapshot()})

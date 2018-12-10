@@ -545,6 +545,15 @@ defmodule Swarm.Tracker do
     {:next_state, :tracking, %{state | sync_node: nil, sync_ref: nil}}
   end
 
+  defp resolve_pending_sync_requests(
+         %TrackerState{sync_node: sync_node, pending_sync_reqs: [pid | pending]} = state
+       )
+       when sync_node == node(pid) do
+    info("discarding sync_node from pending_sync_reqs")
+
+    resolve_pending_sync_requests(%{state | pending_sync_reqs: pending})
+  end
+
   defp resolve_pending_sync_requests(%TrackerState{pending_sync_reqs: [pid | pending]} = state) do
     pending_node = node(pid)
     # Remove monitoring of the previous sync node

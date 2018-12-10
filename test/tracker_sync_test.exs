@@ -179,6 +179,35 @@ defmodule Swarm.TrackerSyncTests do
     assert_process_alive?(true, remote_pid)
   end
 
+  test ":sync_recv should discard pending sync request from sync_node", %{
+    name: name,
+    meta: meta,
+    rclock: rclock
+  } do
+    {:ok, remote_pid} = MyApp.WorkerSup.register()
+    rclock = Clock.event(rclock)
+
+    remote_registry = [
+      entry(name: name, pid: remote_pid, ref: nil, meta: meta, clock: Clock.peek(rclock))
+    ]
+
+    tracker_data = %{
+      elem(:sys.get_state(Swarm.Tracker), 1)
+      | sync_node: node(self()),
+        pending_sync_reqs: [self()]
+    }
+
+    :sys.replace_state(Swarm.Tracker, fn _ -> {:syncing, tracker_data} end)
+
+    GenServer.cast(Swarm.Tracker, {:sync_recv, self(), rclock, remote_registry})
+
+    tracker_pid = Process.whereis(Swarm.Tracker)
+    assert_receive({:"$gen_cast", {:sync_ack, ^tracker_pid, _, _}})
+    refute_receive({:"$gen_cast", {:sync_recv, ^tracker_pid, _, _}})
+
+    assert elem(:sys.get_state(Swarm.Tracker), 0) == :tracking
+  end
+
   defp call_track(name, pid, meta) do
     Swarm.Tracker.track(name, pid)
 
@@ -192,8 +221,16 @@ defmodule Swarm.TrackerSyncTests do
   defp send_sync_request(clock, registry) do
     GenServer.cast(Swarm.Tracker, {:sync, self(), clock})
     GenServer.cast(Swarm.Tracker, {:sync_ack, self(), clock, registry})
+
     # get_state to wait for the sync to be completed
     :sys.get_state(Swarm.Tracker)
+
+    # flush all messages from the sync process
+    receive do
+      _ -> :ok
+    after
+      0 -> :ok
+    end
   end
 
   defp random_name() do

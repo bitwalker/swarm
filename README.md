@@ -335,6 +335,14 @@ verbose output during the tests, run them like this:
 This sets the log level to `:debug`, runs ExUnit with `--trace`, and
 enables GenServer tracing on the Tracker processes.
 
+### Executing the tests locally
+In order to execute the tests locally you'll need to have
+[Erlang Port Mapper Daemon](http://erlang.org/doc/man/epmd.html) running.
+
+If you don't have `epmd` running you can start it using the following command:
+
+    epmd -daemon
+
 
 ## TODO
 

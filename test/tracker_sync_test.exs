@@ -37,7 +37,7 @@ defmodule Swarm.TrackerSyncTests do
     [name: name, pid: pid, meta: meta, lclock: lclock, rclock: rclock]
   end
 
-  test ":sync should set sync node and preserve node clock", %{pid: pid, meta: meta, rclock: rclock} do
+  test ":sync should set sync node and preserve node clock", %{rclock: rclock} do
     {_, state_before} = :sys.get_state(Swarm.Tracker)
     GenServer.cast(Swarm.Tracker, {:sync, self(), rclock})
     {_, state_after} = :sys.get_state(Swarm.Tracker)

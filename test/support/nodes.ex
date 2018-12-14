@@ -51,11 +51,11 @@ defmodule Swarm.Nodes do
 
       _ ->
         for {k, v} <- config do
-          :rpc.call(node, Application, :put_env, [:swarm, k, v])
+          :rpc.call(node(), Application, :put_env, [:swarm, k, v])
         end
     end
 
-    {:ok, _} = :rpc.call(node, Application, :ensure_all_started, [:elixir])
+    {:ok, _} = :rpc.call(node(), Application, :ensure_all_started, [:elixir])
     {:ok, node_name, node_pid}
   end
 
@@ -75,7 +75,7 @@ defmodule Swarm.Nodes do
 
   defp wait_until_started(node_name, pid) do
     receive do
-      {^pid, :data, :out, data} ->
+      {^pid, :data, :out, _data} ->
         # IO.inspect {node_name, data}
         :ok
 

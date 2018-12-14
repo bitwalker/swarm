@@ -37,6 +37,16 @@ defmodule Swarm.TrackerSyncTests do
     [name: name, pid: pid, meta: meta, lclock: lclock, rclock: rclock]
   end
 
+  test ":sync should set sync node and preserve node clock", %{pid: pid, meta: meta, rclock: rclock} do
+    {_, state_before} = :sys.get_state(Swarm.Tracker)
+    GenServer.cast(Swarm.Tracker, {:sync, self(), rclock})
+    {_, state_after} = :sys.get_state(Swarm.Tracker)
+
+    assert state_after.sync_node == :"primary@127.0.0.1"
+    assert state_after.sync_ref
+    assert state_after.clock == state_before.clock
+  end
+
   test ":sync should add missing registration", %{pid: pid, meta: meta, rclock: rclock} do
     name = random_name()
 
@@ -115,7 +125,6 @@ defmodule Swarm.TrackerSyncTests do
     rclock: rclock
   } do
     Swarm.Tracker.add_meta(:new_local, "meta_local", pid)
-
     rclock = Clock.event(rclock)
 
     remote_registry = [
@@ -124,7 +133,7 @@ defmodule Swarm.TrackerSyncTests do
         pid: pid,
         ref: nil,
         meta: %{new_remote: "remote_meta"},
-        clock: Clock.peek(rclock)
+        clock: Clock.peek(Clock.event(rclock))
       )
     ]
 

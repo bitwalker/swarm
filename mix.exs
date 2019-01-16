@@ -15,7 +15,7 @@ defmodule Swarm.Mixfile do
   def project do
     [
       app: :swarm,
-      version: "3.3.1",
+      version: "3.4.0",
       elixir: "~> 1.3",
       elixirc_paths: elixirc_paths(Mix.env()),
       build_embedded: Mix.env() == :prod,

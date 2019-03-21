@@ -14,6 +14,7 @@ defmodule Swarm.Tracker do
   @default_anti_entropy_interval 5 * 60_000
 
   import Swarm.Entry
+  require Logger
   require Swarm.Registry
   alias Swarm.IntervalTreeClock, as: Clock
   alias Swarm.Registry
@@ -110,7 +111,7 @@ defmodule Swarm.Tracker do
     {current_state, _arity} = __CALLER__.function
 
     quote do
-      Swarm.Logger.debug("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+      Logger.debug(Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}"))
     end
   end
 
@@ -118,7 +119,7 @@ defmodule Swarm.Tracker do
     {current_state, _arity} = __CALLER__.function
 
     quote do
-      Swarm.Logger.info("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+      Logger.info(Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}"))
     end
   end
 
@@ -126,7 +127,7 @@ defmodule Swarm.Tracker do
     {current_state, _arity} = __CALLER__.function
 
     quote do
-      Swarm.Logger.warn("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+      Logger.warn(Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}"))
     end
   end
 
@@ -134,7 +135,7 @@ defmodule Swarm.Tracker do
     {current_state, _arity} = __CALLER__.function
 
     quote do
-      Swarm.Logger.error("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+      Logger.error(Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}"))
     end
   end
 

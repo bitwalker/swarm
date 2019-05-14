@@ -1593,9 +1593,7 @@ defmodule Swarm.Tracker do
          entry(name: rname, pid: rpid),
          state
        ) do
-    GenStateMachine.cast({__MODULE__, remote_node}, {:untrack, rpid})
     send(rpid, {:swarm, :die})
-    GenStateMachine.cast({__MODULE__, remote_node}, {:track, rname, lpid, lmeta})
     state
   end
 

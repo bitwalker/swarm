@@ -1385,7 +1385,8 @@ defmodule Swarm.Tracker do
           "remote tracker on #{remote_node} went down during registration, retrying operation.."
         )
 
-        start_pid_remotely(remote_node, from, name, meta, state)
+        :timer.sleep(@retry_interval)
+        start_pid_remotely(remote_node, from, name, meta, state, attempts + 1)
 
       _, {{:nodedown, _}, _} ->
         warn("failed to start #{inspect(name)} on #{remote_node}: nodedown, retrying operation..")

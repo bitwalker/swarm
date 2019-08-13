@@ -240,7 +240,7 @@ defmodule MyApp.Worker do
   #   - `:ignore`, to leave the process running on its current node
   #
   def handle_call({:swarm, :begin_handoff}, _from, {name, delay}) do
-    {:reply, {:resume, delay}, {name, delay}}
+    {:reply, {:resume, {name, delay}}, {name, delay}}
   end
   # called after the process has been restarted on its new node,
   # and the old process' state is being handed off. This is only

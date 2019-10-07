@@ -97,7 +97,7 @@ defmodule Swarm.Tracker do
   @doc """
   Optimized stopping tracking the given process name
   """
-  def fast_untrack(name), 
+  def fast_untrack(name),
     do: GenStateMachine.call(__MODULE__, {:fast_untrack, name}, :infinity)
 
   @doc """
@@ -1049,23 +1049,20 @@ defmodule Swarm.Tracker do
       :undefined ->
         :keep_state_and_data
 
-      entries when is_list(entries) ->
-        Enum.each(entries, fn entry(ref: ref, clock: lclock) = obj ->
-          cond do
-            Clock.leq(lclock, rclock) ->
-              # registration came before unregister, so remove the registration
-              Process.demonitor(ref, [:flush])
-              Registry.remove_by_name(obj)
+      entry(ref: ref, clock: lclock) ->
+        cond do
+          Clock.leq(lclock, rclock) ->
+            # registration came before unregister, so remove the registration
+            Process.demonitor(ref, [:flush])
+            Registry.remove_by_name(key)
 
-            Clock.leq(rclock, lclock) ->
-              # registration is newer than de-registration, ignore msg
-              debug("untrack is causally dominated by track for key=#{inspect(key)}, ignoring..")
+          Clock.leq(rclock, lclock) ->
+            # registration is newer than de-registration, ignore msg
+            debug("untrack is causally dominated by track for key=#{inspect(key)}, ignoring..")
 
-            :else ->
-              debug("untrack is causally conflicted with track for key=#{inspect(key)}, ignoring..")
-          end
-        end)
-
+          :else ->
+            debug("untrack is causally conflicted with track for key=#{inspect(key)}, ignoring..")
+        end
         :keep_state_and_data
     end
   end
@@ -1562,12 +1559,8 @@ defmodule Swarm.Tracker do
    case Registry.get_by_name(key) do
       :undefined ->
         {:ok, state}
-
-      entries when is_list(entries) ->
-        Enum.each(entries, fn entry ->
-          fast_remove_registration(key, entry, state)
-        end)
-
+      entry ->
+        fast_remove_registration(key, entry, state)
         {:ok, state}
     end
   end

@@ -93,6 +93,13 @@ defmodule Swarm.Tracker do
   def untrack(pid) when is_pid(pid),
     do: GenStateMachine.call(__MODULE__, {:untrack, pid}, :infinity)
 
+
+  @doc """
+  Optimized stopping tracking the given process name
+  """
+  def fast_untrack(name), 
+    do: GenStateMachine.call(__MODULE__, {:fast_untrack, name}, :infinity)
+
   @doc """
   Adds some metadata to the given process (pid). This is primarily used for tracking group membership.
   """
@@ -1035,6 +1042,33 @@ defmodule Swarm.Tracker do
         :keep_state_and_data
     end
   end
+  defp handle_replica_event(_from, {:fast_untrack, key}, rclock, _state) do
+    debug("replica event: fast_untrack key=#{inspect(key)}}")
+
+    case Registry.get_by_name(key) do
+      :undefined ->
+        :keep_state_and_data
+
+      entries when is_list(entries) ->
+        Enum.each(entries, fn entry(ref: ref, clock: lclock) = obj ->
+          cond do
+            Clock.leq(lclock, rclock) ->
+              # registration came before unregister, so remove the registration
+              Process.demonitor(ref, [:flush])
+              Registry.remove_by_name(obj)
+
+            Clock.leq(rclock, lclock) ->
+              # registration is newer than de-registration, ignore msg
+              debug("untrack is causally dominated by track for key=#{inspect(key)}, ignoring..")
+
+            :else ->
+              debug("untrack is causally conflicted with track for key=#{inspect(key)}, ignoring..")
+          end
+        end)
+
+        :keep_state_and_data
+    end
+  end
 
   defp handle_replica_event(_from, {:update_meta, new_meta, pid}, rclock, state) do
     debug("replica event: update_meta #{inspect(new_meta)} for #{inspect(pid)}")
@@ -1159,6 +1193,13 @@ defmodule Swarm.Tracker do
   defp handle_call({:untrack, pid}, from, %TrackerState{} = state) do
     debug("untrack #{inspect(pid)}")
     {:ok, new_state} = remove_registration_by_pid(pid, state)
+    GenStateMachine.reply(from, :ok)
+    {:keep_state, new_state}
+  end
+
+  defp handle_call({:fast_untrack, key}, from, %TrackerState{} = state) do
+    debug("untrack_by_key #{inspect(key)}")
+    {:ok, new_state} = remove_registration_by_key(key, state)
     GenStateMachine.reply(from, :ok)
     {:keep_state, new_state}
   end
@@ -1496,6 +1537,13 @@ defmodule Swarm.Tracker do
     broadcast_event(state.nodes, lclock, {:untrack, pid})
     {:ok, state}
   end
+  defp fast_remove_registration(key, entry(pid: _pid, ref: ref, clock: lclock) = _obj, state) do
+    Process.demonitor(ref, [:flush])
+    Registry.remove_by_name(key)
+    lclock = Clock.event(lclock)
+    broadcast_event(state.nodes, lclock, {:fast_untrack, key})
+    {:ok, state}
+  end
 
   defp remove_registration_by_pid(pid, state) do
     case Registry.get_by_pid(pid) do
@@ -1505,6 +1553,19 @@ defmodule Swarm.Tracker do
       entries when is_list(entries) ->
         Enum.each(entries, fn entry ->
           remove_registration(entry, state)
+        end)
+
+        {:ok, state}
+    end
+  end
+  defp remove_registration_by_key(key, state) do
+   case Registry.get_by_name(key) do
+      :undefined ->
+        {:ok, state}
+
+      entries when is_list(entries) ->
+        Enum.each(entries, fn entry ->
+          fast_remove_registration(key, entry, state)
         end)
 
         {:ok, state}

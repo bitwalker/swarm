@@ -19,6 +19,11 @@ defmodule Swarm.Registry do
     end
   end
 
+  @spec fast_unregister(term) :: :ok
+  def fast_unregister(name) do
+    Tracker.fast_untrack(name)
+  end
+
   @spec whereis(term) :: :undefined | pid
   def whereis(name) do
     case get_by_name(name) do
@@ -129,6 +134,11 @@ defmodule Swarm.Registry do
   @spec remove(Entry.entry()) :: true
   def remove(entry() = reg) do
     :ets.delete_object(@table_name, reg)
+  end
+
+  @spec remove_by_name(term()) :: true
+  def remove_by_name(name) do
+    :ets.delete(@table_name, name)
   end
 
   @spec remove_by_pid(pid) :: true

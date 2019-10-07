@@ -70,6 +70,12 @@ defmodule Swarm do
   defdelegate unregister_name(name), to: Swarm.Registry, as: :unregister
 
   @doc """
+  Optimized de-registration the given name from the registry.
+  """
+  @spec fast_unregister_name(term) :: :ok
+  defdelegate fast_unregister_name(name), to: Swarm.Registry, as: :fast_unregister
+
+  @doc """
   Get the pid of a registered name.
   """
   @spec whereis_name(term) :: pid | :undefined

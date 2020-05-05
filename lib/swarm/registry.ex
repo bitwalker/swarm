@@ -9,7 +9,7 @@ defmodule Swarm.Registry do
   ## Public API
 
   defdelegate register(name, pid), to: Tracker, as: :track
-  defdelegate register(name, module, fun, args, timeout), to: Tracker, as: :track
+  defdelegate register(name, module, fun, args, timeout, restart), to: Tracker, as: :track
 
   @spec unregister(term) :: :ok
   def unregister(name) do
@@ -31,13 +31,13 @@ defmodule Swarm.Registry do
   end
 
   @spec whereis_or_register(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
-  def whereis_or_register(name, m, f, a, timeout \\ :infinity)
+  def whereis_or_register(name, m, f, a, timeout \\ :infinity, restart \\ :temporary)
 
   @spec whereis_or_register(term, atom(), atom(), [term], non_neg_integer() | :infinity) ::
           {:ok, pid} | {:error, term}
-  def whereis_or_register(name, module, fun, args, timeout) do
+  def whereis_or_register(name, module, fun, args, timeout, restart) do
     with :undefined <- whereis(name),
-         {:ok, pid} <- register(name, module, fun, args, timeout) do
+         {:ok, pid} <- register(name, module, fun, args, timeout, restart) do
       {:ok, pid}
     else
       pid when is_pid(pid) ->

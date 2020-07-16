@@ -103,7 +103,6 @@ defmodule Swarm.TrackerReplicaEventTests do
 
   test "handle_replica_event :track with conflicting pid and local clock dominates should ignore the event",
        %{name: name, pid: pid, meta: meta, lclock: lclock, rclock: rclock} do
-
     lclock = Clock.event(lclock)
     send_replica_event(lclock, {:track, name, pid, meta})
 
@@ -208,7 +207,7 @@ defmodule Swarm.TrackerReplicaEventTests do
 
     assert entry(name: _, pid: ^pid, ref: _, meta: ^meta, clock: _) = Registry.get_by_name(name)
   end
-  
+
   test "handle_replica_event :update_meta when conflict should merge the meta data", %{
     name: name,
     pid: pid,

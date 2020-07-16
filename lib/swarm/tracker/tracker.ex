@@ -111,7 +111,9 @@ defmodule Swarm.Tracker do
     {current_state, _arity} = __CALLER__.function
 
     quote do
-      Logger.debug(Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}"))
+      Logger.debug(fn ->
+        Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+      end)
     end
   end
 
@@ -119,7 +121,9 @@ defmodule Swarm.Tracker do
     {current_state, _arity} = __CALLER__.function
 
     quote do
-      Logger.info(Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}"))
+      Logger.info(fn ->
+        Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+      end)
     end
   end
 
@@ -127,7 +131,9 @@ defmodule Swarm.Tracker do
     {current_state, _arity} = __CALLER__.function
 
     quote do
-      Logger.warn(Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}"))
+      Logger.warn(fn ->
+        Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+      end)
     end
   end
 
@@ -135,7 +141,9 @@ defmodule Swarm.Tracker do
     {current_state, _arity} = __CALLER__.function
 
     quote do
-      Logger.error(Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}"))
+      Logger.error(fn ->
+        Swarm.Logger.format("[tracker:#{unquote(current_state)}] #{unquote(msg)}")
+      end)
     end
   end
 
@@ -223,11 +231,17 @@ defmodule Swarm.Tracker do
     info("syncing with #{sync_node}")
     ref = Process.monitor({__MODULE__, sync_node})
     {lclock, rclock} = Clock.fork(rclock)
-    debug("forking clock: #{inspect state.clock}, lclock: #{inspect lclock}, rclock: #{inspect rclock}")
+
+    debug(
+      "forking clock: #{inspect(state.clock)}, lclock: #{inspect(lclock)}, rclock: #{
+        inspect(rclock)
+      }"
+    )
+
     GenStateMachine.cast(from, {:sync_recv, self(), rclock, get_registry_snapshot()})
 
     {:next_state, :awaiting_sync_ack,
-    %{state | clock: lclock, sync_node: sync_node, sync_ref: ref}}
+     %{state | clock: lclock, sync_node: sync_node, sync_ref: ref}}
   end
 
   def cluster_wait(:cast, {:sync, from, _rclock}, %TrackerState{} = state) do
@@ -389,7 +403,13 @@ defmodule Swarm.Tracker do
         # The local clock dominates the remote clock, so the local node will begin the sync
         info("syncing to #{sync_node} based on tracker clock")
         {lclock, rclock} = Clock.fork(state.clock)
-        debug("forking clock when local: #{inspect state.clock}, lclock: #{inspect lclock}, rclock: #{inspect rclock}")
+
+        debug(
+          "forking clock when local: #{inspect(state.clock)}, lclock: #{inspect(lclock)}, rclock: #{
+            inspect(rclock)
+          }"
+        )
+
         GenStateMachine.cast(from, {:sync_recv, self(), rclock, get_registry_snapshot()})
         {:next_state, :awaiting_sync_ack, %{state | clock: lclock}}
 
@@ -402,7 +422,13 @@ defmodule Swarm.Tracker do
         # The local node begins the sync
         info("syncing to #{sync_node} based on node precedence")
         {lclock, rclock} = Clock.fork(state.clock)
-        debug("forking clock when concurrent: #{inspect state.clock}, lclock: #{inspect lclock}, rclock: #{inspect rclock}")
+
+        debug(
+          "forking clock when concurrent: #{inspect(state.clock)}, lclock: #{inspect(lclock)}, rclock: #{
+            inspect(rclock)
+          }"
+        )
+
         GenStateMachine.cast(from, {:sync_recv, self(), rclock, get_registry_snapshot()})
         {:next_state, :awaiting_sync_ack, %{state | clock: lclock}}
     end
@@ -570,7 +596,13 @@ defmodule Swarm.Tracker do
       Enum.member?(state.nodes, pending_node) ->
         info("clearing pending sync request for #{pending_node}")
         {lclock, rclock} = Clock.fork(state.clock)
-        debug("forking clock when resolving: #{inspect state.clock}, lclock: #{inspect lclock}, rclock: #{inspect rclock}")
+
+        debug(
+          "forking clock when resolving: #{inspect(state.clock)}, lclock: #{inspect(lclock)}, rclock: #{
+            inspect(rclock)
+          }"
+        )
+
         ref = Process.monitor(pid)
         GenStateMachine.cast(pid, {:sync_recv, self(), rclock, get_registry_snapshot()})
 
@@ -1176,29 +1208,36 @@ defmodule Swarm.Tracker do
     GenStateMachine.reply(from, :ok)
     {:keep_state, new_state}
   end
+
   defp handle_call({:handoff, worker_name, handoff_state}, from, state) do
     Registry.get_by_name(worker_name)
     |> case do
       :undefined ->
         # Worker was already removed from registry -> do nothing
-        debug "The node #{worker_name} was not found in the registry"
+        debug("The node #{worker_name} was not found in the registry")
+
       entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
         case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
           {:error, {:invalid_ring, :no_nodes}} ->
-            debug "Cannot handoff #{inspect name} because there is no other node left"
+            debug("Cannot handoff #{inspect(name)} because there is no other node left")
+
           other_node ->
-            debug "#{inspect name} has requested to be terminated and resumed on another node"
+            debug("#{inspect(name)} has requested to be terminated and resumed on another node")
             {:ok, state} = remove_registration(obj, state)
             send(pid, {:swarm, :die})
-            debug "sending handoff for #{inspect name} to #{other_node}"
-            GenStateMachine.cast({__MODULE__, other_node},
-                                 {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}})
+            debug("sending handoff for #{inspect(name)} to #{other_node}")
+
+            GenStateMachine.cast(
+              {__MODULE__, other_node},
+              {:handoff, self(), {name, meta, handoff_state, Clock.peek(state.clock)}}
+            )
         end
     end
 
     GenStateMachine.reply(from, :finished)
     :keep_state_and_data
   end
+
   defp handle_call(msg, _from, _state) do
     warn("unrecognized call: #{inspect(msg)}")
     :keep_state_and_data
@@ -1215,8 +1254,7 @@ defmodule Swarm.Tracker do
       ref = Process.monitor(from)
       GenStateMachine.cast(from, {:sync_recv, self(), rclock, get_registry_snapshot()})
 
-      {:next_state, :awaiting_sync_ack,
-       %{state | sync_node: sync_node, sync_ref: ref}}
+      {:next_state, :awaiting_sync_ack, %{state | sync_node: sync_node, sync_ref: ref}}
     end
   end
 

@@ -5,13 +5,15 @@ defmodule Swarm.Distribution.Strategy do
   via the `libring` library.
 
   Custom strategies are expected to return a datastructure or pid which will be
-  passed along to any functions which need to manipulate the current distribution state.
-  This can be either a plain datastructure (as is the case with the libring-based strategy),
-  or a pid which your strategy module then uses to call a process in your own supervision tree.
+  passed along to any functions which need to manipulate the current
+  distribution state.  This can be either a plain datastructure (as is the case
+  with the libring-based strategy), or a pid which your strategy module then
+  uses to call a process in your own supervision tree.
 
-  For efficiency reasons, it is highly recommended to use plain datastructures rather than a
-  process for storing the distribution state, because it has the potential to become a bottleneck otherwise,
-  however this is really up to the needs of your situation, just know that you can go either way.
+  For efficiency reasons, it is highly recommended to use plain datastructures
+  rather than a process for storing the distribution state, because it has the
+  potential to become a bottleneck otherwise, however this is really up to the
+  needs of your situation, just know that you can go either way.
   """
   alias Swarm.Distribution.Ring, as: RingStrategy
 
@@ -56,6 +58,7 @@ defmodule Swarm.Distribution.Strategy do
 
   @doc """
   Adds a list of nodes to the state of the current distribution strategy.
+
   The node list can be composed of both node names (atoms) or tuples containing
   a node name and a weight for that node.
   """

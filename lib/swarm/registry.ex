@@ -111,7 +111,7 @@ defmodule Swarm.Registry do
   end
 
   @doc """
-  Inserts a new registration, and returns true if successful, or false if not
+  Inserts a new registration, and returns true if successful, or false if not.
   """
   @spec new(Entry.entry()) :: boolean
   def new(entry() = reg) do

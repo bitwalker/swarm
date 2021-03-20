@@ -16,7 +16,7 @@ defmodule Swarm.IntervalTreeClock do
           | {int_tuple, int_tuple}
 
   @doc """
-  Creates a new interval tree clock
+  Creates a new interval tree clock.
   """
   @spec seed() :: __MODULE__.t()
   def seed(), do: {1, 0}
@@ -45,7 +45,7 @@ defmodule Swarm.IntervalTreeClock do
   def peek({_i, e}), do: {0, e}
 
   @doc """
-  Records an event on the given clock
+  Records an event on the given clock.
   """
   @spec event(__MODULE__.t()) :: __MODULE__.t()
   def event({i, e}) do
@@ -69,10 +69,10 @@ defmodule Swarm.IntervalTreeClock do
 
   @doc """
   Compares two clocks.
-  If :eq is returned, the two clocks are causally equivalent
-  If :lt is returned, the first clock is causally dominated by the second
-  If :gt is returned, the second clock is causally dominated by the first
-  If :concurrent is returned, the two clocks are concurrent (conflicting)
+  If :eq is returned, the two clocks are causally equivalent.
+  If :lt is returned, the first clock is causally dominated by the second.
+  If :gt is returned, the second clock is causally dominated by the first.
+  If :concurrent is returned, the two clocks are concurrent (conflicting).
   """
   @spec compare(__MODULE__.t(), __MODULE__.t()) :: :lt | :gt | :eq | :concurrent
   def compare(a, b) do
@@ -88,13 +88,13 @@ defmodule Swarm.IntervalTreeClock do
   end
 
   @doc """
-  Encodes the clock as a binary
+  Encodes the clock as a binary.
   """
   @spec encode(__MODULE__.t()) :: binary
   def encode({i, e}), do: :erlang.term_to_binary({i, e})
 
   @doc """
-  Decodes the clock from a binary
+  Decodes the clock from a binary.
   """
   @spec decode(binary) :: {:ok, __MODULE__.t()} | {:error, {:invalid_clock, term}}
   def decode(b) when is_binary(b) do
@@ -108,7 +108,7 @@ defmodule Swarm.IntervalTreeClock do
   end
 
   @doc """
-  Returns the length of the encoded binary representation of the clock
+  Returns the length of the encoded binary representation of the clock.
   """
   @spec len(__MODULE__.t()) :: non_neg_integer
   def len(d), do: :erlang.size(encode(d))

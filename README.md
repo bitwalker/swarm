@@ -23,8 +23,8 @@ Before writing Swarm, I tried both `global` and `gproc`, but the former is not v
 both of them require leader election, which, in the face of dynamic node membership and the sheer
 volume of registrations, ended up causing deadlocks/timeouts during leadership contention.
 
-I also attempted to use `syn`, but because it uses `mnesia`, dynamic node membership as a requirement
-means it's dead on arrival for my use case.
+I also attempted to use `syn`, but because it uses `mnesia` at the time, dynamic node membership as a requirement
+meant it was dead on arrival for my use case.
 
 In short, are you running a cluster of Erlang nodes under something like Kubernetes? If so, Swarm is
 for you!

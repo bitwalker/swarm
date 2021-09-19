@@ -60,7 +60,8 @@ defmodule Swarm.Tracker do
   @doc """
   Hand off all the processes running on the given worker to the remaining nodes in the cluster.
   This can be used to gracefully shut down a node.
-  Note that if you don't shut down the node after the handoff a rebalance can lead to processes being scheduled on it again.
+  Note that if you don't shut down the node after the handoff a rebalance can
+  lead to processes being scheduled on it again.
   In other words the handoff doesn't blacklist the node for further rebalances.
   """
   def handoff(worker_name, state),
@@ -68,6 +69,7 @@ defmodule Swarm.Tracker do
 
   @doc """
   Tracks a process (pid) with the given name.
+
   Tracking processes with this function will *not* restart the process when
   its parent node goes down, or shift the process to other nodes if the cluster
   topology changes. It is strictly for global name registration.
@@ -77,12 +79,21 @@ defmodule Swarm.Tracker do
 
   @doc """
   Tracks a process created via the provided module/function/args with the given name.
-  The process will be distributed on the cluster based on the implementation of the configured distribution strategy.
-  If the process' parent node goes down, it will be restarted on the new node which owns its keyspace.
+
+  The process will be distributed on the cluster based on the implementation of
+  the configured distribution strategy.
+
+  If the process' parent node goes down, it will be restarted on the new node
+  which owns its keyspace.
+
   If the cluster topology changes, and the owner of its keyspace changes, it will be shifted to
   the new owner, after initiating the handoff process as described in the documentation.
-  A track call will return an error tagged tuple, `{:error, :no_node_available}`, if there is no node available to start the process.
-  Provide a timeout value to limit the track call duration. A value of `:infinity` can be used to block indefinitely.
+
+  A track call will return an error tagged tuple, `{:error,
+  :no_node_available}`, if there is no node available to start the process.
+
+  Provide a timeout value to limit the track call duration. A value of
+  `:infinity` can be used to block indefinitely.
   """
   def track(name, m, f, a, timeout) when is_atom(m) and is_atom(f) and is_list(a),
     do: GenStateMachine.call(__MODULE__, {:track, name, %{mfa: {m, f, a}}}, timeout)
@@ -94,7 +105,8 @@ defmodule Swarm.Tracker do
     do: GenStateMachine.call(__MODULE__, {:untrack, pid}, :infinity)
 
   @doc """
-  Adds some metadata to the given process (pid). This is primarily used for tracking group membership.
+  Adds some metadata to the given process (pid). This is primarily used for
+  tracking group membership.
   """
   def add_meta(key, value, pid) when is_pid(pid),
     do: GenStateMachine.call(__MODULE__, {:add_meta, key, value, pid}, :infinity)

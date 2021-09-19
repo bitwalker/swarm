@@ -1,4 +1,6 @@
-## Next Release
+# Changelog
+
+## 3.2.0 (2018-02-01)
 
 ### Changed
 
@@ -16,7 +18,7 @@ N/A
 
 Don't attempt to hand-off or restart processes started with `Swarm.register_name/2` ([#63](https://github.com/bitwalker/swarm/pull/63)). Fixes #62.
 
-## 3.1
+## 3.1.0 (2017-11-15)
 
 ### Changed
 
@@ -37,7 +39,7 @@ Don't attempt to hand-off or restart processes started with `Swarm.register_name
 - Add local registration when restarted named process is already started but unknown locally ([#46](https://github.com/bitwalker/swarm/pull/46)).
 - Retry starting remote process when module not yet available on target node ([#56](https://github.com/bitwalker/swarm/pull/56)).
 
-## 2.0
+## 2.0.0 (2016-10-01)
 
 ### Removed
 

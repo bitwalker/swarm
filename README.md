@@ -1,12 +1,18 @@
 # Swarm
 
-[![Hex.pm Version](http://img.shields.io/hexpm/v/swarm.svg?style=flat)](https://hex.pm/packages/swarm) [![Build Status](https://travis-ci.com/bitwalker/swarm.svg?branch=master)](https://travis-ci.com/bitwalker/swarm)
+[![Build Status](https://travis-ci.com/bitwalker/swarm.svg?branch=master)](https://travis-ci.com/bitwalker/swarm)
+[![Module Version](https://img.shields.io/hexpm/v/swarm.svg)](https://hex.pm/packages/swarm)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/swarm/)
+[![Total Download](https://img.shields.io/hexpm/dt/swarm.svg)](https://hex.pm/packages/swarm)
+[![License](https://img.shields.io/hexpm/l/swarm.svg)](https://github.com/bitwalker/swarm/blob/master/LICENSE)
+[![Last Updated](https://img.shields.io/github/last-commit/bitwalker/swarm.svg)](https://github.com/bitwalker/swarm/commits/master)
 
-**NOTE**: If you are upgrading from 1.0, be aware that the autoclustering functionality has been extracted
-to its own package, which you will need to depend on if you use that feature.
-The package is [libcluster](http://github.com/bitwalker/libcluster) and is available on
-[Hex](https://hex.pm/packages/libcluster). Please be sure to read over the README to make sure your
-config is properly updated.
+> **NOTE**: If you are upgrading from 1.0, be aware that the autoclustering
+> functionality has been extracted to its own package, which you will need to
+> depend on if you use that feature. The package is
+> [libcluster](http://github.com/bitwalker/libcluster) and is available on
+> [Hex](https://hex.pm/packages/libcluster). Please be sure to read over the
+> README to make sure your config is properly updated.
 
 Swarm is a global distributed registry, offering a feature set similar to that of `gproc`,
 but architected to handle dynamic node membership and large volumes of process registrations
@@ -31,19 +37,27 @@ for you!
 
 View the docs [here](https://hexdocs.pm/swarm).
 
-**PLEASE READ**: If you are giving Swarm a spin, it is important to understand that you can concoct scenarios whereby
-the registry appears to be out of sync temporarily, this is a side effect of an eventually consistent model and does not mean that
-Swarm is not working correctly, rather you need to ensure that applications you build on top of Swarm are written to embrace eventual
-consistency, such that periods of inconsistency are tolerated. For the most part though, the registry replicates extremely
-quickly, so noticeable inconsistency is more of an exception than a rule, but a proper distributed system should always be designed to
-tolerate the exceptions, as they become more and more common as you scale up. If however you notice extreme inconsistency or delayed
-replication, then it is possible it may be a bug, or performance issue, so feel free to open an issue if you are unsure, and we will gladly look into it.
+> **PLEASE READ**: If you are giving Swarm a spin, it is important to
+> understand that you can concoct scenarios whereby the registry appears to be
+> out of sync temporarily, this is a side effect of an eventually consistent
+> model and does not mean that Swarm is not working correctly, rather you need
+> to ensure that applications you build on top of Swarm are written to embrace
+> eventual consistency, such that periods of inconsistency are tolerated. For
+> the most part though, the registry replicates extremely quickly, so
+> noticeable inconsistency is more of an exception than a rule, but a proper
+> distributed system should always be designed to tolerate the exceptions, as
+> they become more and more common as you scale up. If however you notice
+> extreme inconsistency or delayed replication, then it is possible it may be a
+> bug, or performance issue, so feel free to open an issue if you are unsure,
+> and we will gladly look into it.
 
 ## Installation
 
 ```elixir
 defp deps do
-  [{:swarm, "~> 3.0"}]
+  [
+    {:swarm, "~> 3.0"}
+  ]
 end
 ```
 
@@ -320,10 +334,6 @@ defmodule MyApp.ExampleUsage do
 end
 ```
 
-## License
-
-MIT
-
 ## Testing
 
 `mix test` runs a variety of tests, most of them use a cluster of
@@ -343,8 +353,13 @@ If you don't have `epmd` running you can start it using the following command:
 
     epmd -daemon
 
-
 ## TODO
 
 - automated testing (some are present)
 - QuickCheck model
+
+## Copyright and License
+
+Copyright (c) 2016 Paul Schoenfelder
+
+Released under the MIT License, which can be found in the repository in [`LICENSE.md`](https://github.com/bitwalker/swarm/blob/master/LICENSE.md).

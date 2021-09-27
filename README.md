@@ -198,24 +198,24 @@ defmodule MyApp.Supervisor do
   where you are dynamically creating many workers in response to events. It
   works with other use cases as well, but that's the ideal use case.
   """
-  use Supervisor
+  use DynamicSupervisor
 
   def start_link() do
-    Supervisor.start_link(__MODULE__, [], name: __MODULE__)
+    DynamicSupervisor.start_link(__MODULE__, [], name: __MODULE__)
   end
 
   def init(_) do
-    children = [
-      worker(MyApp.Worker, [], restart: :temporary)
-    ]
-    supervise(children, strategy: :simple_one_for_one)
+    DynamicSupervisor.init(strategy: :one_for_one)
   end
 
   @doc """
   Registers a new worker, and creates the worker process
   """
   def register(worker_name) do
-    {:ok, _pid} = Supervisor.start_child(__MODULE__, [worker_name])
+    DynamicSupervisor.start_child(
+      __MODULE__,
+      {MyApp.Worker, name: worker_name}
+    )
   end
 end
 
@@ -248,7 +248,7 @@ defmodule MyApp.Worker do
   # **NOTE**: This is called *after* the process is successfully started,
   # so make sure to design your processes around this caveat if you
   # wish to hand off state like this.
-  def handle_cast({:swarm, :end_handoff, delay}, {name, _}) do
+  def handle_cast({:swarm, :end_handoff, {name, delay}}, _state) do
     {:noreply, {name, delay}}
   end
   # called when a network split is healed and the local process

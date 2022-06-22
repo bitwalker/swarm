@@ -83,9 +83,13 @@ defmodule Swarm.Tracker do
   the new owner, after initiating the handoff process as described in the documentation.
   A track call will return an error tagged tuple, `{:error, :no_node_available}`, if there is no node available to start the process.
   Provide a timeout value to limit the track call duration. A value of `:infinity` can be used to block indefinitely.
+  The optional restart parameter indicates when a handoff should occur. If `:temporary` and a process terminates, it will not be
+  handed off (only if the node goes down abruptly); if `:transient`, the terminate reason is inspected, and if it's `:normal`,
+  `:shutdown` or `{:shutdown, term()}` a handoff isn't started, only if the termination reason is something else; and finally if it's
+  `:permanent`, the reason is just ignored, a handoff is always performed.
   """
-  def track(name, m, f, a, timeout) when is_atom(m) and is_atom(f) and is_list(a),
-    do: GenStateMachine.call(__MODULE__, {:track, name, %{mfa: {m, f, a}}}, timeout)
+  def track(name, m, f, a, timeout, restart) when is_atom(m) and is_atom(f) and is_list(a) and restart in [:permanent, :transient, :temporary],
+    do: GenStateMachine.call(__MODULE__, {:track, name, %{mfa: {m, f, a}, restart: restart}}, timeout)
 
   @doc """
   Stops tracking the given process (pid).
@@ -1184,7 +1188,7 @@ defmodule Swarm.Tracker do
         debug "The node #{worker_name} was not found in the registry"
       entry(name: name, pid: pid, meta: %{mfa: _mfa} = meta) = obj ->
         case Strategy.remove_node(state.strategy, state.self) |> Strategy.key_to_node(name) do
-          {:error, {:invalid_ring, :no_nodes}} ->
+          :undefined ->
             debug "Cannot handoff #{inspect name} because there is no other node left"
           other_node ->
             debug "#{inspect name} has requested to be terminated and resumed on another node"
@@ -1265,7 +1269,31 @@ defmodule Swarm.Tracker do
   end
 
   defp handle_monitor(ref, pid, reason, %TrackerState{} = state) do
-    case Registry.get_by_ref(ref) do
+    action =
+      case Registry.get_by_ref(ref) do
+        :undefined -> :undefined
+
+        entry(pid: ^pid, meta: %{mfa: _mfa, restart: restart}) = obj ->
+          case restart do
+            :permanent ->
+              {:handoff, {:restart, :permanent}}
+
+            :transient ->
+              case reason do
+                :normal -> {:down, obj}
+                :shutdown -> {:down, obj}
+                {:shutdown, _reason} -> {:down, obj}
+                _ -> {:handoff, {:restart, :transient, reason}}
+              end
+
+            :temporary ->
+              {:down, obj}
+          end
+
+        entry(pid: ^pid) = obj -> {:down, obj}
+      end
+
+    case action do
       :undefined ->
         debug(
           "#{inspect(pid)} is down: #{inspect(reason)}, but no registration found, ignoring.."
@@ -1273,10 +1301,19 @@ defmodule Swarm.Tracker do
 
         :keep_state_and_data
 
-      entry(name: name, pid: ^pid) = obj ->
+      {:down, entry(name: name) = obj} ->
         debug("#{inspect(name)} is down: #{inspect(reason)}")
         {:ok, new_state} = remove_registration(obj, state)
         {:keep_state, new_state}
+
+      {:handoff, condition} ->
+        debug(
+          "handing off #{inspect(pid)} due to #{inspect condition}"
+        )
+
+        state
+        |> nodedown(node(pid))
+        |> handle_node_status()
     end
   end
 
@@ -1594,9 +1631,9 @@ defmodule Swarm.Tracker do
          entry(name: rname, pid: rpid),
          state
        ) do
-    GenStateMachine.cast({__MODULE__, remote_node}, {:untrack, rpid})
+    GenStateMachine.cast({__MODULE__, remote_node}, {:event, self(), state.clock, {:untrack, rpid}})
     send(rpid, {:swarm, :die})
-    GenStateMachine.cast({__MODULE__, remote_node}, {:track, rname, lpid, lmeta})
+    GenStateMachine.cast({__MODULE__, remote_node}, {:event, self(), state.clock, {:track, rname, lpid, lmeta}})
     state
   end
 

@@ -49,8 +49,8 @@ defmodule Swarm do
   @spec register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
   @spec register_name(term, atom(), atom(), [term], non_neg_integer() | :infinity) ::
           {:ok, pid} | {:error, term}
-  def register_name(name, m, f, a, timeout \\ :infinity)
-  def register_name(name, m, f, a, timeout), do: Swarm.Registry.register(name, m, f, a, timeout)
+  def register_name(name, m, f, a, timeout \\ :infinity, restart \\ :temporary)
+  def register_name(name, m, f, a, timeout, restart), do: Swarm.Registry.register(name, m, f, a, timeout, restart)
 
   @doc """
    Either finds the named process in the swarm or registers it using the register function.
@@ -58,10 +58,10 @@ defmodule Swarm do
   @spec whereis_or_register_name(term, atom(), atom(), [term]) :: {:ok, pid} | {:error, term}
   @spec whereis_or_register_name(term, atom(), atom(), [term], non_neg_integer() | :infinity) ::
           {:ok, pid} | {:error, term}
-  def whereis_or_register_name(name, m, f, a, timeout \\ :infinity)
+  def whereis_or_register_name(name, m, f, a, timeout \\ :infinity, restart \\ :temporary)
 
-  def whereis_or_register_name(name, m, f, a, timeout),
-    do: Swarm.Registry.whereis_or_register(name, m, f, a, timeout)
+  def whereis_or_register_name(name, m, f, a, timeout, restart),
+    do: Swarm.Registry.whereis_or_register(name, m, f, a, timeout, restart)
 
   @doc """
   Unregisters the given name from the registry.
